@@ -2,11 +2,22 @@
 
 A modern C++ multi-model inference runtime focused on production-oriented concerns: request scheduling, dynamic batching, worker routing, model residency, memory pressure, overload handling, failure handling, and performance evaluation.
 
-This repository is under active development. The runtime architecture is being built incrementally; the current codebase establishes the project foundation and does not yet provide inference functionality.
+This repository is under active development. The runtime architecture is being built incrementally.
 
 ## Current Status
 
-Milestone 0 — Repository Foundation complete
+**Milestone 1 — Runtime Core & Synthetic Execution complete**
+
+Implemented:
+
+- Explicit `InferenceRequest` lifecycle with invalid-transition protection
+- Bounded thread-safe FIFO queue and `FifoScheduler`
+- Admission controller with queue-full / stopped rejection
+- Single-worker asynchronous dispatch via a Runtime-owned `std::jthread`
+- Generic `IModelBackend` with deterministic `SyntheticModelBackend`
+- Synthetic model load/unload and inference (no real neural models)
+
+Not implemented yet: multi-worker routing, memory residency, dynamic batching, adaptive policies, HTTP, streaming, or llama.cpp.
 
 ## Build
 

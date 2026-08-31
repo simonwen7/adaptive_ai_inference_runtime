@@ -15,7 +15,25 @@ elseif(MSVC)
     add_compile_options(/W4)
 endif()
 
+add_library(airuntime_core STATIC
+    src/request.cpp
+    src/synthetic_backend.cpp
+    src/scheduler.cpp
+    src/admission_controller.cpp
+    src/worker.cpp
+    src/runtime.cpp
+)
+
+target_include_directories(airuntime_core
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+find_package(Threads REQUIRED)
+target_link_libraries(airuntime_core PUBLIC Threads::Threads)
+
 add_executable(runtime-server apps/runtime-server/main.cpp)
+target_link_libraries(runtime-server PRIVATE airuntime_core)
 
 include(FetchContent)
 FetchContent_Declare(
@@ -28,8 +46,17 @@ FetchContent_MakeAvailable(googletest)
 
 enable_testing()
 
-add_executable(runtime_server_smoke_test tests/runtime_server_smoke_test.cpp)
-target_link_libraries(runtime_server_smoke_test PRIVATE GTest::gtest_main)
+add_executable(airuntime_tests
+    tests/runtime_server_smoke_test.cpp
+    tests/request_test.cpp
+    tests/bounded_queue_test.cpp
+    tests/scheduler_test.cpp
+    tests/admission_controller_test.cpp
+    tests/synthetic_backend_test.cpp
+    tests/worker_test.cpp
+    tests/runtime_integration_test.cpp
+)
+target_link_libraries(airuntime_tests PRIVATE airuntime_core GTest::gtest_main)
 
 include(GoogleTest)
-gtest_discover_tests(runtime_server_smoke_test)
+gtest_discover_tests(airuntime_tests)
