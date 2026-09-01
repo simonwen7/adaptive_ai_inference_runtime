@@ -3,6 +3,8 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <span>
+#include <vector>
 
 using airuntime::ErrorCode;
 using airuntime::InferenceRequest;
@@ -63,8 +65,10 @@ TEST(SyntheticBackendTest, DeterministicInferenceAndCost) {
     auto metrics = backend.metrics();
     EXPECT_EQ(metrics.load_count, 1u);
     EXPECT_EQ(metrics.inference_count, 1u);
+    EXPECT_EQ(metrics.batch_inference_count, 1u);
     EXPECT_EQ(metrics.last_simulated_load_cost, std::chrono::microseconds{100});
     EXPECT_EQ(metrics.last_simulated_inference_cost, std::chrono::microseconds{55});
+    EXPECT_EQ(metrics.last_simulated_batch_cost, std::chrono::microseconds{55});
 
     auto second = backend.infer(request);
     ASSERT_TRUE(second.ok());
@@ -96,4 +100,45 @@ TEST(SyntheticBackendTest, ExplicitInferenceFailure) {
     auto result = backend.infer(request);
     EXPECT_FALSE(result.ok());
     EXPECT_EQ(result.status.code, ErrorCode::InferenceFailed);
+}
+
+TEST(SyntheticBackendTest, BatchCostAmortizesPrefill) {
+    SyntheticModelBackend backend;
+    backend.register_model("m1", make_config());
+    ASSERT_TRUE(backend.load(ModelSpec{"m1"}).ok());
+
+    InferenceRequest r1("r1", "m1", "p", 2);
+    InferenceRequest r2("r2", "m1", "p", 3);
+    InferenceRequest r3("r3", "m1", "p", 1);
+    // tokens = 2+3+1 = 6
+    // batch_cost = 40 + 5*6 = 70
+    // serial would be 3*40 + 5*6 = 150
+    const InferenceRequest *ptrs[] = {&r1, &r2, &r3};
+    auto results = backend.infer_batch(ptrs);
+    ASSERT_EQ(results.size(), 3u);
+    EXPECT_TRUE(results[0].ok());
+    EXPECT_TRUE(results[1].ok());
+    EXPECT_TRUE(results[2].ok());
+    EXPECT_EQ(results[0].output->text, "synthetic:r1");
+    EXPECT_EQ(results[1].output->text, "synthetic:r2");
+    EXPECT_EQ(results[2].output->text, "synthetic:r3");
+
+    auto metrics = backend.metrics();
+    EXPECT_EQ(metrics.last_batch_size, 3u);
+    EXPECT_EQ(metrics.batch_inference_count, 1u);
+    EXPECT_EQ(metrics.last_simulated_batch_cost, std::chrono::microseconds{70});
+
+    const auto serial = std::chrono::microseconds{3 * 40 + 5 * 6};
+    EXPECT_LT(metrics.last_simulated_batch_cost, serial);
+}
+
+TEST(SyntheticBackendTest, BatchSizeOneMatchesSingleCost) {
+    SyntheticModelBackend backend;
+    backend.register_model("m1", make_config());
+    ASSERT_TRUE(backend.load(ModelSpec{"m1"}).ok());
+    InferenceRequest r("r1", "m1", "p", 3);
+    const InferenceRequest *ptr = &r;
+    auto results = backend.infer_batch(std::span<const InferenceRequest *const>(&ptr, 1));
+    ASSERT_EQ(results.size(), 1u);
+    EXPECT_EQ(backend.metrics().last_simulated_batch_cost, std::chrono::microseconds{55});
 }

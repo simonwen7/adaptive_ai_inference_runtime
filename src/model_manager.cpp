@@ -1,5 +1,6 @@
 #include "airuntime/model_manager.hpp"
 
+#include <algorithm>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -39,6 +40,27 @@ ModelState ModelManager::model_state(std::string_view model_id) const {
         return ModelState::Unloaded;
     }
     return it->second.state;
+}
+
+std::vector<std::string> ModelManager::resident_model_ids() const {
+    std::lock_guard lock(mutex_);
+    std::vector<std::string> ids;
+    for (const auto &[id, entry] : entries_) {
+        if (entry.state == ModelState::Resident) {
+            ids.push_back(id);
+        }
+    }
+    std::sort(ids.begin(), ids.end());
+    return ids;
+}
+
+std::uint64_t ModelManager::use_count(std::string_view model_id) const {
+    std::lock_guard lock(mutex_);
+    auto it = entries_.find(std::string(model_id));
+    if (it == entries_.end()) {
+        return 0;
+    }
+    return it->second.use_count;
 }
 
 Status ModelManager::evict_one(const EvictionCandidate &victim) {
@@ -81,10 +103,20 @@ Status ModelManager::free_memory_for(std::uint64_t needed_bytes) {
             std::lock_guard lock(mutex_);
             candidates.reserve(entries_.size());
             for (const auto &[id, entry] : entries_) {
-                if (entry.state == ModelState::Resident) {
-                    candidates.push_back(
-                        EvictionCandidate{id, entry.estimated_memory_bytes, entry.last_used});
+                if (entry.state != ModelState::Resident) {
+                    continue;
                 }
+                EvictionCandidate candidate;
+                candidate.model_id = id;
+                candidate.estimated_memory_bytes = entry.estimated_memory_bytes;
+                candidate.last_used = entry.last_used;
+                candidate.use_count = entry.use_count;
+                candidate.estimated_load_cost = 1;
+                ModelSpec spec;
+                if (registry_->find(id, spec).ok()) {
+                    candidate.estimated_load_cost = spec.estimated_load_cost;
+                }
+                candidates.push_back(std::move(candidate));
             }
         }
 
@@ -115,6 +147,7 @@ Status ModelManager::ensure_resident(std::string_view model_id) {
         if (it != entries_.end() && it->second.state == ModelState::Resident) {
             ++metrics_.residency_hits;
             it->second.last_used = ++touch_counter_;
+            ++it->second.use_count;
             return Status::success();
         }
         ++metrics_.residency_misses;
@@ -162,6 +195,7 @@ Status ModelManager::ensure_resident(std::string_view model_id) {
     entry.state = ModelState::Resident;
     entry.last_used = ++touch_counter_;
     entry.previously_loaded = true;
+    ++entry.use_count;
     ++metrics_.loads;
     if (previously_loaded) {
         ++metrics_.reloads;

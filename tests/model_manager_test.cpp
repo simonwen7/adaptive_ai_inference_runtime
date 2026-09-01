@@ -7,6 +7,8 @@
 
 #include <chrono>
 #include <memory>
+#include <string>
+#include <vector>
 
 using airuntime::ErrorCode;
 using airuntime::LruEvictionPolicy;
@@ -111,4 +113,14 @@ TEST(ModelManagerTest, UnknownModel) {
     auto backend = make_backend();
     ModelManager manager(make_registry(), *backend, 12, std::make_unique<LruEvictionPolicy>());
     EXPECT_EQ(manager.ensure_resident("missing").code, ErrorCode::ModelNotFound);
+}
+
+TEST(ModelManagerTest, UseCountIncrementsOncePerSuccessfulEnsure) {
+    auto backend = make_backend();
+    ModelManager manager(make_registry(), *backend, 12, std::make_unique<LruEvictionPolicy>());
+    ASSERT_TRUE(manager.ensure_resident("A").ok());
+    EXPECT_EQ(manager.use_count("A"), 1u);
+    ASSERT_TRUE(manager.ensure_resident("A").ok());
+    EXPECT_EQ(manager.use_count("A"), 2u);
+    EXPECT_EQ(manager.resident_model_ids(), (std::vector<std::string>{"A"}));
 }

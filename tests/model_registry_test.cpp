@@ -28,8 +28,23 @@ TEST(ModelRegistryTest, RejectsInvalidEntries) {
     ModelRegistry::Builder builder;
     EXPECT_EQ(builder.add({"", 10}).code, ErrorCode::InternalError);
     EXPECT_EQ(builder.add({"m1", 0}).code, ErrorCode::InternalError);
+    EXPECT_EQ(builder.add({"m0", 10, 0}).code, ErrorCode::InternalError);
     ASSERT_TRUE(builder.add({"m1", 10}).ok());
     EXPECT_EQ(builder.add({"m1", 20}).code, ErrorCode::InternalError);
+}
+
+TEST(ModelRegistryTest, DefaultLoadCostAndExplicit) {
+    ModelRegistry::Builder builder;
+    ASSERT_TRUE(builder.add({"m1", 10}).ok());
+    ASSERT_TRUE(builder.add({"m2", 10, 42}).ok());
+    Status status;
+    auto registry = builder.build(status);
+    ASSERT_TRUE(status.ok());
+    ModelSpec found;
+    ASSERT_TRUE(registry->find("m1", found).ok());
+    EXPECT_EQ(found.estimated_load_cost, 1u);
+    ASSERT_TRUE(registry->find("m2", found).ok());
+    EXPECT_EQ(found.estimated_load_cost, 42u);
 }
 
 TEST(ModelRegistryTest, EmptyBuildRejected) {

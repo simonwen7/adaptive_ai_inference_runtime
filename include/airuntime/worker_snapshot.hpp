@@ -2,6 +2,8 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
+#include <vector>
 
 namespace airuntime {
 
@@ -15,6 +17,8 @@ struct WorkerSnapshot {
     bool accepting{false};
     std::uint64_t memory_budget_bytes{0};
     std::uint64_t memory_used_bytes{0};
+    // Sorted immutable copy of currently resident model IDs.
+    std::vector<std::string> resident_model_ids;
 };
 
 } // namespace airuntime

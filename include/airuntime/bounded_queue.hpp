@@ -2,6 +2,7 @@
 
 #include "airuntime/status.hpp"
 
+#include <chrono>
 #include <condition_variable>
 #include <cstddef>
 #include <deque>
@@ -53,6 +54,24 @@ template <typename T> class BoundedQueue {
     std::optional<T> wait_pop() {
         std::unique_lock lock(mutex_);
         not_empty_.wait(lock, [this] { return !queue_.empty() || closed_; });
+        if (queue_.empty()) {
+            return std::nullopt;
+        }
+        T value = std::move(queue_.front());
+        queue_.pop_front();
+        not_full_.notify_one();
+        return value;
+    }
+
+    // Waits until an item is available, the deadline is reached, or the queue is
+    // closed and empty. Returns nullopt on timeout or closed-empty.
+    std::optional<T> wait_pop_until(std::chrono::steady_clock::time_point deadline) {
+        std::unique_lock lock(mutex_);
+        while (queue_.empty() && !closed_) {
+            if (not_empty_.wait_until(lock, deadline) == std::cv_status::timeout) {
+                break;
+            }
+        }
         if (queue_.empty()) {
             return std::nullopt;
         }

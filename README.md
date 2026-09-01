@@ -6,18 +6,19 @@ This repository is under active development. The runtime architecture is being b
 
 ## Current Status
 
-**Milestone 2 — Multi-Worker Routing & Memory-Constrained Model Residency complete**
+**Milestone 3 — Dynamic Batching & Adaptive Runtime Policies complete**
 
 Implemented:
 
-- Concurrent multi-worker execution (per-worker bounded lane + thread)
-- Global FIFO scheduling with RoundRobin and LeastLoaded routers
-- Immutable `ModelRegistry` and extended `ModelSpec` memory footprints
-- Per-worker `ModelManager` + `ResourceManager` with memory budgets
-- Deterministic LRU eviction and residency hit/miss/reload metrics
-- Hardened admission against duplicate `RequestPtr` enqueue
+- Worker-local dynamic batching with contiguous same-model head-of-line policy
+- Real `IModelBackend::infer_batch` API with ordered per-request results
+- Deterministic synthetic batch-cost model (shared prefill amortization)
+- `WorkloadAwareScheduler` with largest-group preference and bypass starvation protection
+- `ResidencyAwareRouter` with resident / no-eviction / eviction-required tiers
+- `CostAwareEvictionPolicy` with exact lexicographic victim ordering
+- Baseline policies preserved: `FifoScheduler`, `RoundRobinRouter`, `LeastLoadedRouter`, `LruEvictionPolicy`
 
-Not implemented yet: dynamic batching, adaptive routing/eviction/scheduling, HTTP, streaming, llama.cpp, or benchmarks.
+Not implemented yet: HTTP, streaming, timeouts/cancellation, llama.cpp, real models, or final benchmarks.
 
 ## Build
 

@@ -36,12 +36,16 @@ class ModelManager {
     [[nodiscard]] ResidencyMetrics metrics() const;
     [[nodiscard]] std::uint64_t memory_budget_bytes() const;
     [[nodiscard]] std::uint64_t memory_used_bytes() const;
+    // Sorted copy of currently resident model IDs.
+    [[nodiscard]] std::vector<std::string> resident_model_ids() const;
+    [[nodiscard]] std::uint64_t use_count(std::string_view model_id) const;
 
   private:
     struct Entry {
         ModelState state{ModelState::Unloaded};
         std::uint64_t estimated_memory_bytes{0};
         std::uint64_t last_used{0};
+        std::uint64_t use_count{0};
         bool previously_loaded{false};
     };
 

@@ -4,8 +4,10 @@
 
 #include <chrono>
 #include <mutex>
+#include <span>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace airuntime {
 
@@ -20,10 +22,14 @@ struct SyntheticModelConfig {
 struct SyntheticBackendMetrics {
     std::size_t load_count{0};
     std::size_t inference_count{0};
+    std::size_t batch_inference_count{0};
+    std::size_t last_batch_size{0};
     std::chrono::microseconds last_simulated_load_cost{0};
     std::chrono::microseconds total_simulated_load_cost{0};
     std::chrono::microseconds last_simulated_inference_cost{0};
     std::chrono::microseconds total_simulated_inference_cost{0};
+    std::chrono::microseconds last_simulated_batch_cost{0};
+    std::chrono::microseconds total_simulated_batch_cost{0};
 };
 
 class SyntheticModelBackend final : public IModelBackend {
@@ -34,6 +40,8 @@ class SyntheticModelBackend final : public IModelBackend {
     Status unload(std::string_view model_id) override;
     [[nodiscard]] bool is_loaded(std::string_view model_id) const override;
     InferenceResult infer(const InferenceRequest &request) override;
+    std::vector<InferenceResult>
+    infer_batch(std::span<const InferenceRequest *const> requests) override;
 
     [[nodiscard]] ModelState model_state(std::string_view model_id) const;
     [[nodiscard]] SyntheticBackendMetrics metrics() const;

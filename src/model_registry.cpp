@@ -14,6 +14,9 @@ Status ModelRegistry::Builder::add(ModelSpec spec) {
     if (spec.estimated_memory_bytes == 0) {
         return Status::error(ErrorCode::InternalError, "estimated_memory_bytes must be > 0");
     }
+    if (spec.estimated_load_cost == 0) {
+        return Status::error(ErrorCode::InternalError, "estimated_load_cost must be > 0");
+    }
     if (models_.contains(spec.model_id)) {
         return Status::error(ErrorCode::InternalError, "duplicate model_id");
     }

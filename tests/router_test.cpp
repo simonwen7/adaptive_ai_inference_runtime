@@ -2,18 +2,22 @@
 #include "airuntime/worker_snapshot.hpp"
 
 #include <gtest/gtest.h>
+
+#include <string>
 #include <vector>
 
 using airuntime::ErrorCode;
 using airuntime::LeastLoadedRouter;
 using airuntime::ModelSpec;
+using airuntime::ResidencyAwareRouter;
 using airuntime::RoundRobinRouter;
 using airuntime::WorkerSnapshot;
 
 namespace {
 
 WorkerSnapshot make_snap(airuntime::WorkerId id, std::uint64_t budget, std::size_t depth = 0,
-                         std::size_t active = 0, bool accepting = true) {
+                         std::size_t active = 0, bool accepting = true, std::uint64_t used = 0,
+                         std::vector<std::string> resident = {}) {
     WorkerSnapshot snap;
     snap.worker_id = id;
     snap.queue_depth = depth;
@@ -21,7 +25,8 @@ WorkerSnapshot make_snap(airuntime::WorkerId id, std::uint64_t budget, std::size
     snap.active_count = active;
     snap.accepting = accepting;
     snap.memory_budget_bytes = budget;
-    snap.memory_used_bytes = 0;
+    snap.memory_used_bytes = used;
+    snap.resident_model_ids = std::move(resident);
     return snap;
 }
 
@@ -57,9 +62,16 @@ TEST(RouterTest, RoundRobinNoFeasibleWorker) {
 
 TEST(RouterTest, RoundRobinIgnoresLoadAndUsedMemory) {
     RoundRobinRouter router;
-    auto busy = make_snap(0, 100, 99, 1);
-    busy.memory_used_bytes = 99;
+    auto busy = make_snap(0, 100, 99, 1, true, 99, {"m"});
     std::vector<WorkerSnapshot> workers{busy, make_snap(1, 100)};
+    EXPECT_EQ(*router.select(ModelSpec{"m", 10}, workers).worker_id, 0u);
+}
+
+TEST(RouterTest, RoundRobinIgnoresResidencySnapshot) {
+    RoundRobinRouter router;
+    std::vector<WorkerSnapshot> workers{make_snap(0, 100, 0, 0, true, 0, {}),
+                                        make_snap(1, 100, 0, 0, true, 0, {"m"})};
+    // RR still picks worker 0 first despite residency on worker 1.
     EXPECT_EQ(*router.select(ModelSpec{"m", 10}, workers).worker_id, 0u);
 }
 
@@ -94,4 +106,52 @@ TEST(RouterTest, LeastLoadedNoFeasible) {
     auto result = router.select(ModelSpec{"m", 50},
                                 std::vector<WorkerSnapshot>{make_snap(0, 10), make_snap(1, 20)});
     EXPECT_EQ(result.status.code, ErrorCode::NoFeasibleWorker);
+}
+
+TEST(RouterTest, LeastLoadedIgnoresResidency) {
+    LeastLoadedRouter router;
+    std::vector<WorkerSnapshot> workers{make_snap(0, 100, 0, 0, true, 90, {}),
+                                        make_snap(1, 100, 0, 0, true, 0, {"m"})};
+    // Equal load → lowest id, ignoring residency and used memory.
+    EXPECT_EQ(*router.select(ModelSpec{"m", 10}, workers).worker_id, 0u);
+}
+
+TEST(ResidencyAwareRouterTest, PrefersResident) {
+    ResidencyAwareRouter router;
+    std::vector<WorkerSnapshot> workers{make_snap(0, 100, 0, 0, true, 0, {}),
+                                        make_snap(1, 100, 5, 0, true, 10, {"m"})};
+    EXPECT_EQ(*router.select(ModelSpec{"m", 10}, workers).worker_id, 1u);
+    EXPECT_GE(router.metrics().resident_selections, 1u);
+}
+
+TEST(ResidencyAwareRouterTest, PrefersNoEvictionOverEvictionRequired) {
+    ResidencyAwareRouter router;
+    // Worker 0: not resident, needs eviction (used 90, need 20, free 10)
+    // Worker 1: not resident, free fits (used 0)
+    std::vector<WorkerSnapshot> workers{make_snap(0, 100, 0, 0, true, 90, {"other"}),
+                                        make_snap(1, 100, 2, 0, true, 0, {})};
+    EXPECT_EQ(*router.select(ModelSpec{"m", 20}, workers).worker_id, 1u);
+    EXPECT_GE(router.metrics().no_eviction_load_selections, 1u);
+}
+
+TEST(ResidencyAwareRouterTest, SameTierLowerLoadThenLowestId) {
+    ResidencyAwareRouter router;
+    std::vector<WorkerSnapshot> workers{make_snap(2, 100, 3, 0, true, 0, {"m"}),
+                                        make_snap(0, 100, 1, 0, true, 0, {"m"}),
+                                        make_snap(1, 100, 1, 0, true, 0, {"m"})};
+    EXPECT_EQ(*router.select(ModelSpec{"m", 10}, workers).worker_id, 0u);
+}
+
+TEST(ResidencyAwareRouterTest, NoFeasible) {
+    ResidencyAwareRouter router;
+    auto result = router.select(ModelSpec{"m", 50},
+                                std::vector<WorkerSnapshot>{make_snap(0, 10), make_snap(1, 20)});
+    EXPECT_EQ(result.status.code, ErrorCode::NoFeasibleWorker);
+}
+
+TEST(ResidencyAwareRouterTest, EvictionRequiredTierWhenOnlyOption) {
+    ResidencyAwareRouter router;
+    std::vector<WorkerSnapshot> workers{make_snap(0, 100, 0, 0, true, 90, {"other"})};
+    EXPECT_EQ(*router.select(ModelSpec{"m", 20}, workers).worker_id, 0u);
+    EXPECT_GE(router.metrics().eviction_required_selections, 1u);
 }

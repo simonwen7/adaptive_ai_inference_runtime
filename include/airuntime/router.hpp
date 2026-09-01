@@ -52,6 +52,22 @@ class LeastLoadedRouter final : public IWorkerRouter {
     RoutingResult select(const ModelSpec &model, std::span<const WorkerSnapshot> workers) override;
 };
 
+struct ResidencyAwareRouterMetrics {
+    std::uint64_t resident_selections{0};
+    std::uint64_t no_eviction_load_selections{0};
+    std::uint64_t eviction_required_selections{0};
+};
+
+class ResidencyAwareRouter final : public IWorkerRouter {
+  public:
+    RoutingResult select(const ModelSpec &model, std::span<const WorkerSnapshot> workers) override;
+
+    [[nodiscard]] ResidencyAwareRouterMetrics metrics() const;
+
+  private:
+    ResidencyAwareRouterMetrics metrics_;
+};
+
 [[nodiscard]] bool is_m2_feasible(const ModelSpec &model, const WorkerSnapshot &worker);
 
 } // namespace airuntime

@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <string>
 #include <thread>
 #include <vector>
@@ -81,6 +82,31 @@ TEST(BoundedQueueTest, WaitPushBlocksUntilSpace) {
     producer.join();
     EXPECT_TRUE(pushed.load());
     EXPECT_EQ(*queue.wait_pop(), 2);
+}
+
+TEST(BoundedQueueTest, WaitPopUntilReturnsAvailableImmediately) {
+    BoundedQueue<int> queue(2);
+    ASSERT_TRUE(queue.try_push(7).ok());
+    auto past = std::chrono::steady_clock::now() - std::chrono::milliseconds{1};
+    auto item = queue.wait_pop_until(past);
+    ASSERT_TRUE(item.has_value());
+    EXPECT_EQ(*item, 7);
+}
+
+TEST(BoundedQueueTest, WaitPopUntilTimesOutWhenEmpty) {
+    BoundedQueue<int> queue(2);
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds{5};
+    auto item = queue.wait_pop_until(deadline);
+    EXPECT_FALSE(item.has_value());
+}
+
+TEST(BoundedQueueTest, WaitPopUntilDrainsAfterClose) {
+    BoundedQueue<int> queue(2);
+    ASSERT_TRUE(queue.try_push(1).ok());
+    queue.close();
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{1};
+    EXPECT_EQ(*queue.wait_pop_until(deadline), 1);
+    EXPECT_FALSE(queue.wait_pop_until(deadline).has_value());
 }
 
 TEST(BoundedQueueTest, ProducerConsumerSafety) {

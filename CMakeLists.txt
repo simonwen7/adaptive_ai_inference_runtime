@@ -19,6 +19,7 @@ add_library(airuntime_core STATIC
     src/request.cpp
     src/synthetic_backend.cpp
     src/scheduler.cpp
+    src/workload_aware_scheduler.cpp
     src/admission_controller.cpp
     src/worker.cpp
     src/runtime.cpp
@@ -27,6 +28,7 @@ add_library(airuntime_core STATIC
     src/eviction_policy.cpp
     src/model_manager.cpp
     src/router.cpp
+    src/batch_builder.cpp
 )
 
 target_include_directories(airuntime_core
@@ -56,9 +58,12 @@ add_executable(airuntime_tests
     tests/request_test.cpp
     tests/bounded_queue_test.cpp
     tests/scheduler_test.cpp
+    tests/workload_aware_scheduler_test.cpp
     tests/admission_controller_test.cpp
     tests/synthetic_backend_test.cpp
     tests/worker_test.cpp
+    tests/worker_batch_test.cpp
+    tests/batch_builder_test.cpp
     tests/runtime_integration_test.cpp
     tests/model_registry_test.cpp
     tests/resource_manager_test.cpp
@@ -66,6 +71,7 @@ add_executable(airuntime_tests
     tests/router_test.cpp
     tests/model_manager_test.cpp
     tests/multi_worker_integration_test.cpp
+    tests/m3_integration_test.cpp
 )
 target_link_libraries(airuntime_tests PRIVATE airuntime_core GTest::gtest_main)
 

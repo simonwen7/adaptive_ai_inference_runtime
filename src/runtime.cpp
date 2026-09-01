@@ -67,13 +67,15 @@ void Runtime::stop() {
         scheduler_->close();
     }
 
-    std::optional<detail::JoinThread> routing;
     {
-        std::lock_guard lock(mutex_);
-        routing = std::move(routing_thread_);
-        routing_thread_.reset();
+        std::optional<detail::JoinThread> routing;
+        {
+            std::lock_guard lock(mutex_);
+            routing = std::move(routing_thread_);
+            routing_thread_.reset();
+        }
+        // Join routing thread before closing workers.
     }
-    // Join routing thread before closing workers.
 
     for (auto &worker : workers_) {
         if (worker) {

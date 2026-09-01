@@ -8,8 +8,10 @@
 
 #include <chrono>
 #include <memory>
+#include <span>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 using airuntime::ErrorCode;
 using airuntime::IModelBackend;
@@ -41,6 +43,9 @@ class ThrowingBackend final : public IModelBackend {
         return true;
     }
     InferenceResult infer(const InferenceRequest &) override {
+        throw std::runtime_error("boom");
+    }
+    std::vector<InferenceResult> infer_batch(std::span<const InferenceRequest *const>) override {
         throw std::runtime_error("boom");
     }
 };

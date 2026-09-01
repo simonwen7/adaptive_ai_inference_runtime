@@ -14,6 +14,7 @@
 #include <condition_variable>
 #include <memory>
 #include <mutex>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -57,6 +58,15 @@ class BarrierBackend final : public IModelBackend {
     }
 
     InferenceResult infer(const InferenceRequest &request) override {
+        const InferenceRequest *ptr = &request;
+        auto results = infer_batch(std::span<const InferenceRequest *const>(&ptr, 1));
+        return results.empty() ? InferenceResult::failure(
+                                     Status::error(ErrorCode::InternalError, "empty batch result"))
+                               : std::move(results.front());
+    }
+
+    std::vector<InferenceResult>
+    infer_batch(std::span<const InferenceRequest *const> requests) override {
         {
             std::unique_lock lock(*mutex_);
             ++(*arrived_);
@@ -67,7 +77,7 @@ class BarrierBackend final : public IModelBackend {
                 cv_->wait(lock, [&] { return *released_; });
             }
         }
-        return inner_->infer(request);
+        return inner_->infer_batch(requests);
     }
 
   private:
