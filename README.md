@@ -6,18 +6,18 @@ This repository is under active development. The runtime architecture is being b
 
 ## Current Status
 
-**Milestone 1 — Runtime Core & Synthetic Execution complete**
+**Milestone 2 — Multi-Worker Routing & Memory-Constrained Model Residency complete**
 
 Implemented:
 
-- Explicit `InferenceRequest` lifecycle with invalid-transition protection
-- Bounded thread-safe FIFO queue and `FifoScheduler`
-- Admission controller with queue-full / stopped rejection
-- Single-worker asynchronous dispatch via a Runtime-owned `std::jthread`
-- Generic `IModelBackend` with deterministic `SyntheticModelBackend`
-- Synthetic model load/unload and inference (no real neural models)
+- Concurrent multi-worker execution (per-worker bounded lane + thread)
+- Global FIFO scheduling with RoundRobin and LeastLoaded routers
+- Immutable `ModelRegistry` and extended `ModelSpec` memory footprints
+- Per-worker `ModelManager` + `ResourceManager` with memory budgets
+- Deterministic LRU eviction and residency hit/miss/reload metrics
+- Hardened admission against duplicate `RequestPtr` enqueue
 
-Not implemented yet: multi-worker routing, memory residency, dynamic batching, adaptive policies, HTTP, streaming, or llama.cpp.
+Not implemented yet: dynamic batching, adaptive routing/eviction/scheduling, HTTP, streaming, llama.cpp, or benchmarks.
 
 ## Build
 

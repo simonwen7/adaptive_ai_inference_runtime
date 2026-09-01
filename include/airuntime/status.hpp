@@ -15,7 +15,9 @@ enum class ErrorCode {
     ModelLoadFailed,
     InferenceFailed,
     RuntimeStopped,
-    InternalError
+    InternalError,
+    InsufficientMemory,
+    NoFeasibleWorker
 };
 
 struct Status {

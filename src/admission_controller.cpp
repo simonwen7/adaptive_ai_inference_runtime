@@ -9,9 +9,11 @@ Status AdmissionController::admit(const RequestPtr &request) {
         return Status::error(ErrorCode::InternalError, "null request");
     }
 
-    if (request->state() != RequestState::Received) {
-        return Status::error(ErrorCode::InvalidStateTransition,
-                             "admission requires Received state");
+    // Atomically claim Queued before enqueue so a concurrent submit of the same
+    // RequestPtr cannot enter the scheduler twice.
+    auto queued = request->transition_to(RequestState::Queued);
+    if (!queued.ok()) {
+        return queued;
     }
 
     auto enqueue_status = scheduler_.enqueue(request);
@@ -30,10 +32,6 @@ Status AdmissionController::admit(const RequestPtr &request) {
         return reject_status;
     }
 
-    auto queued = request->transition_to(RequestState::Queued);
-    if (!queued.ok()) {
-        return queued;
-    }
     return Status::success();
 }
 

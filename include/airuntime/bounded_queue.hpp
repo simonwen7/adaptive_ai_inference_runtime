@@ -32,7 +32,19 @@ template <typename T> class BoundedQueue {
             return Status::error(ErrorCode::QueueFull, "queue is full");
         }
         queue_.push_back(std::move(value));
-        cv_.notify_one();
+        not_empty_.notify_one();
+        return Status::success();
+    }
+
+    // Blocks while full and open. Fails if closed before space is available.
+    Status wait_push(T value) {
+        std::unique_lock lock(mutex_);
+        not_full_.wait(lock, [this] { return queue_.size() < capacity_ || closed_; });
+        if (closed_) {
+            return Status::error(ErrorCode::QueueClosed, "queue is closed");
+        }
+        queue_.push_back(std::move(value));
+        not_empty_.notify_one();
         return Status::success();
     }
 
@@ -40,19 +52,21 @@ template <typename T> class BoundedQueue {
     // Returns nullopt only when closed and empty.
     std::optional<T> wait_pop() {
         std::unique_lock lock(mutex_);
-        cv_.wait(lock, [this] { return !queue_.empty() || closed_; });
+        not_empty_.wait(lock, [this] { return !queue_.empty() || closed_; });
         if (queue_.empty()) {
             return std::nullopt;
         }
         T value = std::move(queue_.front());
         queue_.pop_front();
+        not_full_.notify_one();
         return value;
     }
 
     void close() {
         std::lock_guard lock(mutex_);
         closed_ = true;
-        cv_.notify_all();
+        not_empty_.notify_all();
+        not_full_.notify_all();
     }
 
     [[nodiscard]] std::size_t size() const {
@@ -72,7 +86,8 @@ template <typename T> class BoundedQueue {
   private:
     const std::size_t capacity_;
     mutable std::mutex mutex_;
-    std::condition_variable cv_;
+    std::condition_variable not_empty_;
+    std::condition_variable not_full_;
     std::deque<T> queue_;
     bool closed_{false};
 };

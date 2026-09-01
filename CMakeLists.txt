@@ -22,6 +22,11 @@ add_library(airuntime_core STATIC
     src/admission_controller.cpp
     src/worker.cpp
     src/runtime.cpp
+    src/model_registry.cpp
+    src/resource_manager.cpp
+    src/eviction_policy.cpp
+    src/model_manager.cpp
+    src/router.cpp
 )
 
 target_include_directories(airuntime_core
@@ -55,6 +60,12 @@ add_executable(airuntime_tests
     tests/synthetic_backend_test.cpp
     tests/worker_test.cpp
     tests/runtime_integration_test.cpp
+    tests/model_registry_test.cpp
+    tests/resource_manager_test.cpp
+    tests/eviction_policy_test.cpp
+    tests/router_test.cpp
+    tests/model_manager_test.cpp
+    tests/multi_worker_integration_test.cpp
 )
 target_link_libraries(airuntime_tests PRIVATE airuntime_core GTest::gtest_main)
 

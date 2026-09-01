@@ -43,6 +43,7 @@ TEST(BoundedQueueTest, CloseRejectsPushes) {
     queue.close();
     EXPECT_TRUE(queue.closed());
     EXPECT_EQ(queue.try_push(1).code, ErrorCode::QueueClosed);
+    EXPECT_EQ(queue.wait_push(1).code, ErrorCode::QueueClosed);
 }
 
 TEST(BoundedQueueTest, WaitPopDrainsAfterClose) {
@@ -62,6 +63,26 @@ TEST(BoundedQueueTest, ClosedEmptyEndsConsumer) {
     EXPECT_FALSE(queue.wait_pop().has_value());
 }
 
+TEST(BoundedQueueTest, WaitPushBlocksUntilSpace) {
+    BoundedQueue<int> queue(1);
+    ASSERT_TRUE(queue.try_push(1).ok());
+
+    std::atomic<bool> pushed{false};
+    std::thread producer([&] {
+        ASSERT_TRUE(queue.wait_push(2).ok());
+        pushed.store(true);
+    });
+
+    while (queue.size() != 1u) {
+        std::this_thread::yield();
+    }
+    EXPECT_FALSE(pushed.load());
+    EXPECT_EQ(*queue.wait_pop(), 1);
+    producer.join();
+    EXPECT_TRUE(pushed.load());
+    EXPECT_EQ(*queue.wait_pop(), 2);
+}
+
 TEST(BoundedQueueTest, ProducerConsumerSafety) {
     BoundedQueue<int> queue(8);
     constexpr int kCount = 100;
@@ -70,9 +91,7 @@ TEST(BoundedQueueTest, ProducerConsumerSafety) {
 
     std::thread producer([&] {
         for (int i = 0; i < kCount; ++i) {
-            while (!queue.try_push(i).ok()) {
-                std::this_thread::yield();
-            }
+            ASSERT_TRUE(queue.wait_push(i).ok());
         }
         queue.close();
     });
