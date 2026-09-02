@@ -4,6 +4,7 @@
 #include "airuntime/model_registry.hpp"
 #include "airuntime/request.hpp"
 #include "airuntime/router.hpp"
+#include "airuntime/runtime_snapshot.hpp"
 #include "airuntime/scheduler.hpp"
 #include "airuntime/status.hpp"
 #include "airuntime/threading.hpp"
@@ -33,13 +34,20 @@ class Runtime {
     void stop();
 
     [[nodiscard]] bool is_running() const;
+    [[nodiscard]] bool is_accepting() const;
+    [[nodiscard]] bool is_healthy() const;
+    [[nodiscard]] RuntimeSnapshot snapshot() const;
+    [[nodiscard]] MetricsSnapshot metrics_snapshot() const;
+    [[nodiscard]] std::vector<ModelRuntimeSnapshot> model_snapshots() const;
     [[nodiscard]] Worker *worker(WorkerId id);
     [[nodiscard]] const Worker *worker(WorkerId id) const;
+    [[nodiscard]] const ModelRegistry &registry() const;
 
   private:
     void routing_loop();
     std::vector<WorkerSnapshot> collect_snapshots() const;
     Worker *find_worker(WorkerId id);
+    Status route_request(const RequestPtr &request);
 
     mutable std::mutex mutex_;
     std::unique_ptr<IRequestScheduler> scheduler_;

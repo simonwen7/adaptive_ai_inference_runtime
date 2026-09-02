@@ -39,10 +39,38 @@ target_include_directories(airuntime_core
 find_package(Threads REQUIRED)
 target_link_libraries(airuntime_core PUBLIC Threads::Threads)
 
-add_executable(runtime-server apps/runtime-server/main.cpp)
-target_link_libraries(runtime-server PRIVATE airuntime_core)
+find_package(Boost 1.83 REQUIRED COMPONENTS system)
 
 include(FetchContent)
+FetchContent_Declare(
+    json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG v3.11.3
+)
+FetchContent_MakeAvailable(json)
+
+add_library(airuntime_serving STATIC
+    src/serving/request_handler.cpp
+    src/serving/http_session.cpp
+    src/serving/http_server.cpp
+)
+
+target_include_directories(airuntime_serving
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+target_link_libraries(airuntime_serving
+    PUBLIC
+        airuntime_core
+        Boost::system
+        nlohmann_json::nlohmann_json
+        Threads::Threads
+)
+
+add_executable(runtime-server apps/runtime-server/main.cpp)
+target_link_libraries(runtime-server PRIVATE airuntime_serving)
+
 FetchContent_Declare(
     googletest
     GIT_REPOSITORY https://github.com/google/googletest.git
@@ -72,8 +100,23 @@ add_executable(airuntime_tests
     tests/model_manager_test.cpp
     tests/multi_worker_integration_test.cpp
     tests/m3_integration_test.cpp
+    tests/reliability_test.cpp
 )
 target_link_libraries(airuntime_tests PRIVATE airuntime_core GTest::gtest_main)
 
+add_executable(airuntime_serving_tests
+    tests/request_handler_test.cpp
+    tests/http_integration_test.cpp
+)
+target_link_libraries(airuntime_serving_tests PRIVATE airuntime_serving GTest::gtest_main)
+target_compile_definitions(airuntime_serving_tests PRIVATE
+    RUNTIME_SERVER_BIN="$<TARGET_FILE:runtime-server>")
+
+add_executable(airuntime_http_integration_runner tests/http_integration_runner.cpp)
+target_compile_definitions(airuntime_http_integration_runner PRIVATE
+    RUNTIME_SERVER_BIN="$<TARGET_FILE:runtime-server>")
+
 include(GoogleTest)
 gtest_discover_tests(airuntime_tests)
+gtest_discover_tests(airuntime_serving_tests)
+add_test(NAME HttpIntegrationRunner COMMAND airuntime_http_integration_runner)

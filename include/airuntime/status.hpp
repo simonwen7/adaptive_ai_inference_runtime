@@ -17,7 +17,9 @@ enum class ErrorCode {
     RuntimeStopped,
     InternalError,
     InsufficientMemory,
-    NoFeasibleWorker
+    NoFeasibleWorker,
+    Cancelled,
+    TimedOut
 };
 
 struct Status {

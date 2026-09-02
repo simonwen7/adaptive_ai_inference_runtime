@@ -1,10 +1,26 @@
 #include "airuntime/workload_aware_scheduler.hpp"
 
+#include <chrono>
 #include <limits>
 #include <stdexcept>
 #include <utility>
 
 namespace airuntime {
+
+namespace {
+
+bool is_dead_request(const RequestPtr &request) {
+    if (!request) {
+        return true;
+    }
+    if (request->is_terminal()) {
+        return true;
+    }
+    request->try_timeout_if_expired(std::chrono::steady_clock::now());
+    return request->is_terminal();
+}
+
+} // namespace
 
 WorkloadAwareScheduler::WorkloadAwareScheduler(WorkloadAwareSchedulerConfig config)
     : capacity_(config.capacity), max_bypass_(config.max_bypass) {
@@ -13,6 +29,27 @@ WorkloadAwareScheduler::WorkloadAwareScheduler(WorkloadAwareSchedulerConfig conf
     }
     if (max_bypass_ < 1) {
         throw std::invalid_argument("WorkloadAwareScheduler max_bypass must be >= 1");
+    }
+}
+
+void WorkloadAwareScheduler::prune_dead_entries_locked() {
+    for (auto it = by_model_.begin(); it != by_model_.end();) {
+        auto &q = it->second;
+        for (auto entry_it = q.begin(); entry_it != q.end();) {
+            if (is_dead_request(entry_it->request)) {
+                entry_it = q.erase(entry_it);
+                if (size_ > 0) {
+                    --size_;
+                }
+            } else {
+                ++entry_it;
+            }
+        }
+        if (q.empty()) {
+            it = by_model_.erase(it);
+        } else {
+            ++it;
+        }
     }
 }
 
@@ -41,6 +78,7 @@ Status WorkloadAwareScheduler::enqueue(RequestPtr request) {
 std::optional<RequestPtr> WorkloadAwareScheduler::next() {
     std::unique_lock lock(mutex_);
     cv_.wait(lock, [this] { return size_ > 0 || closed_; });
+    prune_dead_entries_locked();
     if (size_ == 0) {
         return std::nullopt;
     }
@@ -48,10 +86,16 @@ std::optional<RequestPtr> WorkloadAwareScheduler::next() {
 }
 
 std::optional<RequestPtr> WorkloadAwareScheduler::select_locked() {
+    prune_dead_entries_locked();
+    if (size_ == 0) {
+        return std::nullopt;
+    }
+
     std::uint64_t oldest_global_seq = std::numeric_limits<std::uint64_t>::max();
     for (const auto &[model, q] : by_model_) {
         (void)model;
-        if (!q.empty() && q.front().enqueue_sequence < oldest_global_seq) {
+        if (!q.empty() && !is_dead_request(q.front().request) &&
+            q.front().enqueue_sequence < oldest_global_seq) {
             oldest_global_seq = q.front().enqueue_sequence;
         }
     }
@@ -63,6 +107,9 @@ std::optional<RequestPtr> WorkloadAwareScheduler::select_locked() {
     std::uint64_t best_starved_seq = std::numeric_limits<std::uint64_t>::max();
     for (auto &[model, q] : by_model_) {
         for (std::size_t i = 0; i < q.size(); ++i) {
+            if (is_dead_request(q[i].request)) {
+                continue;
+            }
             if (q[i].bypass_count >= max_bypass_ && q[i].enqueue_sequence < best_starved_seq) {
                 best_starved_seq = q[i].enqueue_sequence;
                 chosen_model = model;
@@ -81,14 +128,25 @@ std::optional<RequestPtr> WorkloadAwareScheduler::select_locked() {
             if (q.empty()) {
                 continue;
             }
-            const std::size_t group_size = q.size();
-            const std::uint64_t oldest_seq = q.front().enqueue_sequence;
-            const bool better = !chosen_model.has_value() || group_size > best_group_size ||
-                                (group_size == best_group_size && oldest_seq < best_oldest_seq) ||
-                                (group_size == best_group_size && oldest_seq == best_oldest_seq &&
-                                 model < best_model_id);
+            std::size_t live_group_size = 0;
+            std::uint64_t oldest_seq = std::numeric_limits<std::uint64_t>::max();
+            for (const auto &entry : q) {
+                if (is_dead_request(entry.request)) {
+                    continue;
+                }
+                ++live_group_size;
+                oldest_seq = std::min(oldest_seq, entry.enqueue_sequence);
+            }
+            if (live_group_size == 0) {
+                continue;
+            }
+            const bool better =
+                !chosen_model.has_value() || live_group_size > best_group_size ||
+                (live_group_size == best_group_size && oldest_seq < best_oldest_seq) ||
+                (live_group_size == best_group_size && oldest_seq == best_oldest_seq &&
+                 model < best_model_id);
             if (better) {
-                best_group_size = group_size;
+                best_group_size = live_group_size;
                 best_oldest_seq = oldest_seq;
                 best_model_id = model;
                 chosen_model = model;
@@ -98,12 +156,27 @@ std::optional<RequestPtr> WorkloadAwareScheduler::select_locked() {
     }
 
     if (!chosen_model.has_value()) {
+        prune_dead_entries_locked();
         return std::nullopt;
     }
 
     auto mit = by_model_.find(*chosen_model);
-    if (mit == by_model_.end() || chosen_index >= mit->second.size()) {
+    if (mit == by_model_.end()) {
         return std::nullopt;
+    }
+
+    while (chosen_index < mit->second.size() &&
+           is_dead_request(mit->second[chosen_index].request)) {
+        mit->second.erase(mit->second.begin() + static_cast<std::ptrdiff_t>(chosen_index));
+        if (size_ > 0) {
+            --size_;
+        }
+    }
+    if (chosen_index >= mit->second.size()) {
+        if (mit->second.empty()) {
+            by_model_.erase(mit);
+        }
+        return select_locked();
     }
 
     Entry selected = std::move(mit->second[chosen_index]);
@@ -112,6 +185,10 @@ std::optional<RequestPtr> WorkloadAwareScheduler::select_locked() {
         by_model_.erase(mit);
     }
     --size_;
+
+    if (is_dead_request(selected.request)) {
+        return select_locked();
+    }
 
     if (selected.enqueue_sequence != oldest_global_seq) {
         ++metrics_.reordered_dispatches;
@@ -123,7 +200,9 @@ std::optional<RequestPtr> WorkloadAwareScheduler::select_locked() {
     for (auto &[model, q] : by_model_) {
         (void)model;
         for (auto &entry : q) {
-            ++entry.bypass_count;
+            if (!is_dead_request(entry.request)) {
+                ++entry.bypass_count;
+            }
         }
     }
 

@@ -1,5 +1,7 @@
 #include "airuntime/admission_controller.hpp"
 
+#include <chrono>
+
 namespace airuntime {
 
 AdmissionController::AdmissionController(IRequestScheduler &scheduler) : scheduler_(scheduler) {}
@@ -9,8 +11,11 @@ Status AdmissionController::admit(const RequestPtr &request) {
         return Status::error(ErrorCode::InternalError, "null request");
     }
 
-    // Atomically claim Queued before enqueue so a concurrent submit of the same
-    // RequestPtr cannot enter the scheduler twice.
+    request->try_timeout_if_expired(std::chrono::steady_clock::now());
+    if (request->is_terminal()) {
+        return Status::success();
+    }
+
     auto queued = request->transition_to(RequestState::Queued);
     if (!queued.ok()) {
         return queued;
@@ -25,9 +30,9 @@ Status AdmissionController::admit(const RequestPtr &request) {
         auto reject_status = Status::error(reject_code, enqueue_status.message.empty()
                                                             ? "request rejected by admission"
                                                             : enqueue_status.message);
-        auto transition = request->reject(reject_status);
-        if (!transition.ok()) {
-            return transition;
+        auto transition = request->try_reject(reject_status);
+        if (!transition) {
+            return Status::error(ErrorCode::InvalidStateTransition, "request already terminal");
         }
         return reject_status;
     }

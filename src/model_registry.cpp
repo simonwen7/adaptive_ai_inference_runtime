@@ -1,5 +1,6 @@
 #include "airuntime/model_registry.hpp"
 
+#include <algorithm>
 #include <utility>
 
 namespace airuntime {
@@ -49,6 +50,18 @@ bool ModelRegistry::contains(std::string_view model_id) const {
 
 std::size_t ModelRegistry::size() const {
     return models_.size();
+}
+
+std::vector<ModelSpec> ModelRegistry::models() const {
+    std::vector<ModelSpec> out;
+    out.reserve(models_.size());
+    for (const auto &[id, spec] : models_) {
+        (void)id;
+        out.push_back(spec);
+    }
+    std::sort(out.begin(), out.end(),
+              [](const ModelSpec &a, const ModelSpec &b) { return a.model_id < b.model_id; });
+    return out;
 }
 
 } // namespace airuntime

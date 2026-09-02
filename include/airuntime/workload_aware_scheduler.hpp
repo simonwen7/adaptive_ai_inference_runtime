@@ -44,6 +44,7 @@ class WorkloadAwareScheduler final : public IRequestScheduler {
         std::uint64_t bypass_count{0};
     };
 
+    void prune_dead_entries_locked();
     std::optional<RequestPtr> select_locked();
 
     const std::size_t capacity_;

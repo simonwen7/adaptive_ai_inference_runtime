@@ -1,6 +1,23 @@
 #include "airuntime/scheduler.hpp"
 
+#include <chrono>
+
 namespace airuntime {
+
+namespace {
+
+bool is_dead_request(const RequestPtr &request) {
+    if (!request) {
+        return true;
+    }
+    if (request->is_terminal()) {
+        return true;
+    }
+    request->try_timeout_if_expired(std::chrono::steady_clock::now());
+    return request->is_terminal();
+}
+
+} // namespace
 
 FifoScheduler::FifoScheduler(std::size_t capacity) : queue_(capacity) {}
 
@@ -9,7 +26,15 @@ Status FifoScheduler::enqueue(RequestPtr request) {
 }
 
 std::optional<RequestPtr> FifoScheduler::next() {
-    return queue_.wait_pop();
+    while (true) {
+        auto item = queue_.wait_pop();
+        if (!item.has_value()) {
+            return std::nullopt;
+        }
+        if (!is_dead_request(*item)) {
+            return item;
+        }
+    }
 }
 
 void FifoScheduler::close() {

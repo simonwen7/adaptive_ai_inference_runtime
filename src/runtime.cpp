@@ -1,5 +1,7 @@
 #include "airuntime/runtime.hpp"
 
+#include <algorithm>
+#include <chrono>
 #include <stdexcept>
 #include <utility>
 
@@ -51,9 +53,19 @@ Status Runtime::start() {
 }
 
 Status Runtime::submit(const RequestPtr &request) {
+    if (!request) {
+        return Status::error(ErrorCode::InternalError, "null request");
+    }
+    if (request->is_terminal()) {
+        return Status::success();
+    }
+    request->try_timeout_if_expired(std::chrono::steady_clock::now());
+    if (request->is_terminal()) {
+        return Status::success();
+    }
     if (!accepting_.load()) {
-        if (request && request->state() == RequestState::Received) {
-            request->reject(
+        if (request->state() == RequestState::Received) {
+            request->try_reject(
                 Status::error(ErrorCode::RuntimeStopped, "runtime is not accepting work"));
         }
         return Status::error(ErrorCode::RuntimeStopped, "runtime is not accepting work");
@@ -74,7 +86,6 @@ void Runtime::stop() {
             routing = std::move(routing_thread_);
             routing_thread_.reset();
         }
-        // Join routing thread before closing workers.
     }
 
     for (auto &worker : workers_) {
@@ -91,6 +102,85 @@ void Runtime::stop() {
 
 bool Runtime::is_running() const {
     return accepting_.load() && started_;
+}
+
+bool Runtime::is_accepting() const {
+    return accepting_.load();
+}
+
+bool Runtime::is_healthy() const {
+    if (!accepting_.load() || !started_) {
+        return false;
+    }
+    if (workers_.empty()) {
+        return false;
+    }
+    for (const auto &worker : workers_) {
+        if (worker && worker->snapshot().accepting) {
+            return true;
+        }
+    }
+    return false;
+}
+
+RuntimeSnapshot Runtime::snapshot() const {
+    RuntimeSnapshot snap;
+    snap.accepting = accepting_.load();
+    snap.started = started_;
+    if (scheduler_) {
+        snap.scheduler_depth = scheduler_->size();
+        snap.scheduler_capacity = scheduler_->capacity();
+    }
+    snap.worker_count = workers_.size();
+    for (const auto &worker : workers_) {
+        WorkerRuntimeSnapshot worker_snap;
+        worker_snap.worker = worker->snapshot();
+        worker_snap.batch_metrics = worker->batch_metrics();
+        worker_snap.residency_metrics = worker->residency_metrics();
+        snap.workers.push_back(std::move(worker_snap));
+    }
+    return snap;
+}
+
+MetricsSnapshot Runtime::metrics_snapshot() const {
+    MetricsSnapshot snap;
+    if (scheduler_) {
+        snap.scheduler_depth = scheduler_->size();
+        snap.scheduler_capacity = scheduler_->capacity();
+    }
+    for (const auto &worker : workers_) {
+        WorkerRuntimeSnapshot worker_snap;
+        worker_snap.worker = worker->snapshot();
+        worker_snap.batch_metrics = worker->batch_metrics();
+        worker_snap.residency_metrics = worker->residency_metrics();
+        snap.workers.push_back(std::move(worker_snap));
+    }
+    return snap;
+}
+
+std::vector<ModelRuntimeSnapshot> Runtime::model_snapshots() const {
+    std::vector<ModelRuntimeSnapshot> models;
+    for (const auto &spec : registry_->models()) {
+        ModelRuntimeSnapshot model_snap;
+        model_snap.spec = spec;
+        for (const auto &worker : workers_) {
+            const auto resident = worker->snapshot().resident_model_ids;
+            if (std::find(resident.begin(), resident.end(), spec.model_id) != resident.end()) {
+                model_snap.resident_worker_ids.push_back(worker->id());
+            }
+        }
+        std::sort(model_snap.resident_worker_ids.begin(), model_snap.resident_worker_ids.end());
+        models.push_back(std::move(model_snap));
+    }
+    std::sort(models.begin(), models.end(),
+              [](const ModelRuntimeSnapshot &a, const ModelRuntimeSnapshot &b) {
+                  return a.spec.model_id < b.spec.model_id;
+              });
+    return models;
+}
+
+const ModelRegistry &Runtime::registry() const {
+    return *registry_;
 }
 
 Worker *Runtime::worker(WorkerId id) {
@@ -122,38 +212,60 @@ std::vector<WorkerSnapshot> Runtime::collect_snapshots() const {
     return snapshots;
 }
 
+Status Runtime::route_request(const RequestPtr &request) {
+    if (!request || request->is_terminal()) {
+        return Status::success();
+    }
+    request->try_timeout_if_expired(std::chrono::steady_clock::now());
+    if (request->is_terminal()) {
+        return Status::success();
+    }
+
+    ModelSpec spec;
+    auto find_status = registry_->find(request->model_id(), spec);
+    if (!find_status.ok()) {
+        request->try_reject(find_status);
+        return find_status;
+    }
+
+    auto snapshots = collect_snapshots();
+    auto selected = router_->select(spec, snapshots);
+    if (!selected.ok()) {
+        request->try_reject(selected.status);
+        return selected.status;
+    }
+
+    Worker *target = find_worker(*selected.worker_id);
+    if (!target) {
+        auto err = Status::error(ErrorCode::InternalError, "selected worker missing");
+        request->try_reject(err);
+        return err;
+    }
+
+    const auto deadline = request->deadline();
+    Status enqueue_status;
+    if (deadline.has_value()) {
+        enqueue_status = target->enqueue_until(request, *deadline);
+    } else {
+        enqueue_status = target->enqueue(request);
+    }
+    if (!enqueue_status.ok()) {
+        if (enqueue_status.code == ErrorCode::TimedOut) {
+            return enqueue_status;
+        }
+        request->try_reject(enqueue_status);
+        return enqueue_status;
+    }
+    return Status::success();
+}
+
 void Runtime::routing_loop() {
     while (true) {
         auto next = scheduler_->next();
         if (!next.has_value()) {
             break;
         }
-        RequestPtr request = *next;
-
-        ModelSpec spec;
-        auto find_status = registry_->find(request->model_id(), spec);
-        if (!find_status.ok()) {
-            request->reject(find_status);
-            continue;
-        }
-
-        auto snapshots = collect_snapshots();
-        auto selected = router_->select(spec, snapshots);
-        if (!selected.ok()) {
-            request->reject(selected.status);
-            continue;
-        }
-
-        Worker *target = find_worker(*selected.worker_id);
-        if (!target) {
-            request->reject(Status::error(ErrorCode::InternalError, "selected worker missing"));
-            continue;
-        }
-
-        auto enqueue_status = target->enqueue(request);
-        if (!enqueue_status.ok()) {
-            request->reject(enqueue_status);
-        }
+        (void)route_request(*next);
     }
 }
 

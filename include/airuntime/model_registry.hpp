@@ -7,6 +7,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <vector>
 
 namespace airuntime {
 
@@ -26,6 +27,7 @@ class ModelRegistry {
     [[nodiscard]] Status find(std::string_view model_id, ModelSpec &out) const;
     [[nodiscard]] bool contains(std::string_view model_id) const;
     [[nodiscard]] std::size_t size() const;
+    [[nodiscard]] std::vector<ModelSpec> models() const;
 
   private:
     explicit ModelRegistry(std::unordered_map<std::string, ModelSpec> models);

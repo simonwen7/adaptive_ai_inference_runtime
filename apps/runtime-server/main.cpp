@@ -2,14 +2,22 @@
 #include "airuntime/model_registry.hpp"
 #include "airuntime/router.hpp"
 #include "airuntime/runtime.hpp"
+#include "airuntime/serving/http_session.hpp"
+#include "airuntime/serving/request_handler.hpp"
 #include "airuntime/synthetic_backend.hpp"
 #include "airuntime/worker.hpp"
 #include "airuntime/workload_aware_scheduler.hpp"
 
+#include <boost/asio/io_context.hpp>
+#include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/signal_set.hpp>
+
 #include <chrono>
 #include <cstdint>
+#include <cstdio>
 #include <iostream>
 #include <memory>
+#include <string>
 #include <vector>
 
 namespace {
@@ -52,10 +60,45 @@ airuntime::WorkerConfig make_worker_config(airuntime::WorkerId id,
     return worker_config;
 }
 
+void print_usage() {
+    std::cerr << "Usage: runtime-server [--host HOST] [--port PORT]\n";
+}
+
+bool parse_args(int argc, char **argv, std::string &host, unsigned short &port) {
+    host = "127.0.0.1";
+    port = 8080;
+    for (int i = 1; i < argc; ++i) {
+        const std::string arg = argv[i];
+        if (arg == "--help" || arg == "-h") {
+            print_usage();
+            return false;
+        }
+        if (arg == "--host" && i + 1 < argc) {
+            host = argv[++i];
+            continue;
+        }
+        if (arg == "--port" && i + 1 < argc) {
+            port = static_cast<unsigned short>(std::stoi(argv[++i]));
+            continue;
+        }
+        std::cerr << "unknown argument: " << arg << '\n';
+        print_usage();
+        return false;
+    }
+    return true;
+}
+
 } // namespace
 
-int main() {
-    using namespace airuntime;
+int main(int argc, char **argv) {
+    setvbuf(stdout, nullptr, _IONBF, 0);
+    setvbuf(stderr, nullptr, _IONBF, 0);
+
+    std::string host;
+    unsigned short port = 0;
+    if (!parse_args(argc, argv, host, port)) {
+        return 0;
+    }
 
     std::cout << "Adaptive AI Inference Runtime\n";
 
@@ -66,67 +109,39 @@ int main() {
     }
 
     constexpr std::uint64_t kBudget = 12ull * 1024 * 1024 * 1024;
-    std::vector<std::unique_ptr<Worker>> workers;
-    workers.push_back(std::make_unique<Worker>(make_worker_config(0, registry, kBudget)));
-    workers.push_back(std::make_unique<Worker>(make_worker_config(1, registry, kBudget)));
+    std::vector<std::unique_ptr<airuntime::Worker>> workers;
+    workers.push_back(
+        std::make_unique<airuntime::Worker>(make_worker_config(0, registry, kBudget)));
+    workers.push_back(
+        std::make_unique<airuntime::Worker>(make_worker_config(1, registry, kBudget)));
 
-    WorkloadAwareSchedulerConfig sched_config;
+    airuntime::WorkloadAwareSchedulerConfig sched_config;
     sched_config.capacity = 32;
     sched_config.max_bypass = 8;
 
-    Runtime runtime(std::make_unique<WorkloadAwareScheduler>(sched_config),
-                    std::make_unique<ResidencyAwareRouter>(), std::move(workers), registry);
+    airuntime::Runtime runtime(std::make_unique<airuntime::WorkloadAwareScheduler>(sched_config),
+                               std::make_unique<airuntime::ResidencyAwareRouter>(),
+                               std::move(workers), registry);
 
     if (!runtime.start().ok()) {
         std::cerr << "failed to start runtime\n";
         return 1;
     }
 
-    std::vector<RequestPtr> requests;
-    requests.push_back(std::make_shared<InferenceRequest>("req-1", "model-a", "hello a1", 2));
-    requests.push_back(std::make_shared<InferenceRequest>("req-2", "model-a", "hello a2", 2));
-    requests.push_back(std::make_shared<InferenceRequest>("req-3", "model-b", "hello b1", 2));
-    requests.push_back(std::make_shared<InferenceRequest>("req-4", "model-a", "hello a3", 2));
+    boost::asio::io_context ioc;
+    airuntime::serving::RequestHandler handler(runtime);
+    boost::asio::ip::tcp::endpoint endpoint(boost::asio::ip::make_address(host), port);
+    airuntime::serving::HttpServer server(ioc, endpoint, handler);
 
-    for (const auto &request : requests) {
-        if (!runtime.submit(request).ok()) {
-            std::cerr << "submit failed\n";
-            runtime.stop();
-            return 1;
-        }
-    }
+    boost::asio::signal_set signals(ioc, SIGINT, SIGTERM);
+    signals.async_wait([&](const boost::system::error_code &, int) {
+        std::cerr << "shutdown signal received\n";
+        server.stop();
+    });
 
-    for (const auto &request : requests) {
-        if (!request->wait_for_terminal(std::chrono::seconds{5})) {
-            std::cerr << "timed out waiting for requests\n";
-            runtime.stop();
-            return 1;
-        }
-        if (request->state() != RequestState::Completed) {
-            std::cerr << "request did not complete\n";
-            runtime.stop();
-            return 1;
-        }
-        std::cout << "request " << request->request_id() << "\n";
-        std::cout << "→ completed\n";
-        std::cout << "→ output=" << request->result()->output->text << '\n';
-    }
-
-    for (WorkerId id : {WorkerId{0}, WorkerId{1}}) {
-        auto *worker = runtime.worker(id);
-        if (!worker) {
-            continue;
-        }
-        auto snap = worker->snapshot();
-        auto residency = worker->residency_metrics();
-        auto batch = worker->batch_metrics();
-        std::cout << "worker " << id << " memory_used=" << snap.memory_used_bytes
-                  << " loads=" << residency.loads << " hits=" << residency.residency_hits
-                  << " batches=" << batch.batches_executed
-                  << " multi_batches=" << batch.multi_request_batches
-                  << " max_batch=" << batch.max_batch_size_observed << '\n';
-    }
-
+    std::cout << "Listening on http://" << host << ':' << server.port() << std::endl;
+    std::cout.flush();
+    server.run();
     runtime.stop();
     return 0;
 }

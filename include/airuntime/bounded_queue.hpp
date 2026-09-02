@@ -49,6 +49,25 @@ template <typename T> class BoundedQueue {
         return Status::success();
     }
 
+    // Blocks until space is available, the deadline is reached, or the queue is closed.
+    Status wait_push_until(T value, std::chrono::steady_clock::time_point deadline) {
+        std::unique_lock lock(mutex_);
+        while (queue_.size() >= capacity_ && !closed_) {
+            if (not_full_.wait_until(lock, deadline) == std::cv_status::timeout) {
+                return Status::error(ErrorCode::TimedOut, "queue push deadline exceeded");
+            }
+        }
+        if (closed_) {
+            return Status::error(ErrorCode::QueueClosed, "queue is closed");
+        }
+        if (queue_.size() >= capacity_) {
+            return Status::error(ErrorCode::TimedOut, "queue push deadline exceeded");
+        }
+        queue_.push_back(std::move(value));
+        not_empty_.notify_one();
+        return Status::success();
+    }
+
     // Blocks until an item is available or the queue is closed and empty.
     // Returns nullopt only when closed and empty.
     std::optional<T> wait_pop() {

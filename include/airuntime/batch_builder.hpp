@@ -32,9 +32,12 @@ class BatchBuilder {
 
     // Forms one contiguous same-model batch starting at `first`.
     // When allow_wait is false (e.g. lane closed), does not wait for max_batch_wait.
-    FormedBatch form(RequestPtr first, const PopUntilFn &pop_until, bool allow_wait) const;
+    FormedBatch form(RequestPtr first, const PopUntilFn &pop_until, bool allow_wait,
+                     std::function<bool(RequestPtr &)> on_extra_request = nullptr) const;
 
   private:
+    static std::optional<std::chrono::steady_clock::time_point>
+    earliest_deadline(const std::vector<RequestPtr> &requests);
     BatchBuilderConfig config_;
 };
 

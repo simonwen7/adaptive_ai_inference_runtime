@@ -49,6 +49,7 @@ class Worker {
 
     Status start();
     Status enqueue(const RequestPtr &request);
+    Status enqueue_until(const RequestPtr &request, std::chrono::steady_clock::time_point deadline);
     void close();
     void join();
 
@@ -63,6 +64,9 @@ class Worker {
   private:
     void run_loop();
     Status execute_batch(std::vector<RequestPtr> batch);
+    void discard_queued_request(const RequestPtr &request);
+    static bool is_dead_request(const RequestPtr &request);
+    static std::vector<RequestPtr> filter_live_batch(std::vector<RequestPtr> batch);
 
     const WorkerId worker_id_;
     const std::size_t queue_capacity_;
