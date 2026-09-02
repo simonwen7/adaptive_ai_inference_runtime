@@ -28,6 +28,12 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure
 
+      - name: Benchmark tooling
+        run: |
+          python3 -m unittest discover -s benchmarks/tests -p 'test_*.py'
+          python3 benchmarks/run.py --help
+          python3 benchmarks/analyze.py --help
+
   build-and-test-llama:
     runs-on: ubuntu-latest
 

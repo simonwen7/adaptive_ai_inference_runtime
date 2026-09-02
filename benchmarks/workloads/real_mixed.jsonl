@@ -1,0 +1,16 @@
+{"id":"p01","prompt":"Hi"}
+{"id":"p02","prompt":"Yes?"}
+{"id":"p03","prompt":"OK now"}
+{"id":"p04","prompt":"Go"}
+{"id":"p05","prompt":"Name one primary color."}
+{"id":"p06","prompt":"List two small mammals."}
+{"id":"p07","prompt":"Give a short greeting for a morning meeting."}
+{"id":"p08","prompt":"Suggest one simple indoor stretch."}
+{"id":"p09","prompt":"What is one use for a paperclip?"}
+{"id":"p10","prompt":"Name a fruit that is usually yellow."}
+{"id":"p11","prompt":"Write one sentence about rain on a quiet street."}
+{"id":"p12","prompt":"Provide a brief tip for organizing desk cables."}
+{"id":"p13","prompt":"Describe a calm library reading room in two short sentences, focusing on light and sound."}
+{"id":"p14","prompt":"Explain in plain language how a kitchen timer helps cooking, using no more than three short sentences."}
+{"id":"p15","prompt":"Write a short checklist for packing a day backpack for a city walk: water, layers, and one spare item."}
+{"id":"p16","prompt":"Summarize why reproducible benchmarks matter for inference runtimes in three concise bullet-like sentences without marketing language."}

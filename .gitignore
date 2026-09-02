@@ -26,6 +26,15 @@ Testing/
 # Model artifacts (never commit)
 *.gguf
 
+# Benchmark / Python generated
+__pycache__/
+*.py[cod]
+.pytest_cache/
+benchmarks/results/*.json
+benchmarks/results/*.md
+!benchmarks/results/README.md
+/tmp/airuntime-bench-out/
+
 # macOS
 .DS_Store
 
