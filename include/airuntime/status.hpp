@@ -19,7 +19,8 @@ enum class ErrorCode {
     InsufficientMemory,
     NoFeasibleWorker,
     Cancelled,
-    TimedOut
+    TimedOut,
+    ContextLengthExceeded
 };
 
 struct Status {

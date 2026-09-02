@@ -96,5 +96,9 @@ TEST(RequestHandlerTest, HttpStatusMapping) {
     auto request = std::make_shared<InferenceRequest>("req-1", "model-a", "p", 1);
     request->try_reject(Status::error(ErrorCode::ModelNotFound, "missing"));
     EXPECT_EQ(handler.http_status_for_snapshot(request->snapshot()), 404);
+
+    auto too_long = std::make_shared<InferenceRequest>("req-2", "model-a", "p", 1);
+    too_long->try_reject(Status::error(ErrorCode::ContextLengthExceeded, "prompt exceeds context"));
+    EXPECT_EQ(handler.http_status_for_snapshot(too_long->snapshot()), 400);
     runtime->stop();
 }

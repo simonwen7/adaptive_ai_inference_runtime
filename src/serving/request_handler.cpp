@@ -74,6 +74,8 @@ std::string RequestHandler::error_code_to_string(ErrorCode code) {
         return "Cancelled";
     case ErrorCode::TimedOut:
         return "TimedOut";
+    case ErrorCode::ContextLengthExceeded:
+        return "ContextLengthExceeded";
     }
     return "Unknown";
 }
@@ -321,6 +323,8 @@ int RequestHandler::http_status_for_snapshot(const RequestSnapshot &snap) const 
     switch (snap.result->status.code) {
     case ErrorCode::ModelNotFound:
         return 404;
+    case ErrorCode::ContextLengthExceeded:
+        return 400;
     case ErrorCode::QueueFull:
     case ErrorCode::RuntimeStopped:
     case ErrorCode::NoFeasibleWorker:

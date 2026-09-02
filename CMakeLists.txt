@@ -15,6 +15,8 @@ elseif(MSVC)
     add_compile_options(/W4)
 endif()
 
+option(AIRUNTIME_ENABLE_LLAMA "Build optional real llama.cpp GGUF backend" OFF)
+
 add_library(airuntime_core STATIC
     src/request.cpp
     src/synthetic_backend.cpp
@@ -68,8 +70,51 @@ target_link_libraries(airuntime_serving
         Threads::Threads
 )
 
+if(AIRUNTIME_ENABLE_LLAMA)
+    set(LLAMA_BUILD_COMMON OFF CACHE BOOL "" FORCE)
+    set(LLAMA_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(LLAMA_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+    set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(LLAMA_BUILD_SERVER OFF CACHE BOOL "" FORCE)
+    set(LLAMA_BUILD_APP OFF CACHE BOOL "" FORCE)
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+    set(GGML_NATIVE OFF CACHE BOOL "" FORCE)
+    if(APPLE)
+        set(GGML_METAL ON CACHE BOOL "" FORCE)
+    else()
+        set(GGML_METAL OFF CACHE BOOL "" FORCE)
+    endif()
+
+    FetchContent_Declare(
+        llama_cpp
+        GIT_REPOSITORY https://github.com/ggml-org/llama.cpp.git
+        GIT_TAG 9cc33944f9b7a44243618d5522adae357d7fdc90
+    )
+    FetchContent_MakeAvailable(llama_cpp)
+
+    add_library(airuntime_llama_backend STATIC
+        src/llama/llama_backend_runtime.cpp
+        src/llama/llama_cpp_backend_config.cpp
+        src/llama/llama_cpp_backend.cpp
+    )
+    target_include_directories(airuntime_llama_backend
+        PUBLIC
+            ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+    target_link_libraries(airuntime_llama_backend
+        PUBLIC
+            airuntime_core
+            llama
+            Threads::Threads
+    )
+endif()
+
 add_executable(runtime-server apps/runtime-server/main.cpp)
 target_link_libraries(runtime-server PRIVATE airuntime_serving)
+if(AIRUNTIME_ENABLE_LLAMA)
+    target_link_libraries(runtime-server PRIVATE airuntime_llama_backend)
+    target_compile_definitions(runtime-server PRIVATE AIRUNTIME_ENABLE_LLAMA=1)
+endif()
 
 FetchContent_Declare(
     googletest
@@ -117,7 +162,18 @@ add_executable(airuntime_http_integration_runner tests/http_integration_runner.c
 target_compile_definitions(airuntime_http_integration_runner PRIVATE
     RUNTIME_SERVER_BIN="$<TARGET_FILE:runtime-server>")
 
+if(AIRUNTIME_ENABLE_LLAMA)
+    add_executable(airuntime_llama_tests
+        tests/llama_backend_test.cpp
+        tests/llama_real_model_test.cpp
+    )
+    target_link_libraries(airuntime_llama_tests PRIVATE airuntime_llama_backend GTest::gtest_main)
+endif()
+
 include(GoogleTest)
 gtest_discover_tests(airuntime_tests)
 gtest_discover_tests(airuntime_serving_tests)
+if(AIRUNTIME_ENABLE_LLAMA)
+    gtest_discover_tests(airuntime_llama_tests)
+endif()
 add_test(NAME HttpIntegrationRunner COMMAND airuntime_http_integration_runner)

@@ -23,6 +23,9 @@ Testing/
 *.dll
 *.exe
 
+# Model artifacts (never commit)
+*.gguf
+
 # macOS
 .DS_Store
 

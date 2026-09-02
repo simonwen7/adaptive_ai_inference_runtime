@@ -27,3 +27,30 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build --output-on-failure
+
+  build-and-test-llama:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libboost-all-dev
+
+      - name: Configure llama backend (CPU)
+        run: |
+          cmake -S . -B build-llama \
+            -DAIRUNTIME_ENABLE_LLAMA=ON \
+            -DGGML_METAL=OFF
+
+      - name: Build llama backend
+        run: cmake --build build-llama
+
+      - name: Test llama backend (no GGUF download)
+        run: ctest --test-dir build-llama --output-on-failure
+        env:
+          # Intentionally unset: real-model tests must GTEST_SKIP cleanly.
+          AIRUNTIME_TEST_GGUF: ""
