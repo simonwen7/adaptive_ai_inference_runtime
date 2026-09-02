@@ -33,13 +33,15 @@ class HttpSession : public std::enable_shared_from_this<HttpSession> {
   private:
     using Request = boost::beast::http::request<boost::beast::http::string_body>;
     using StringResponse = boost::beast::http::response<boost::beast::http::string_body>;
-    using VectorResponse = boost::beast::http::response<boost::beast::http::vector_body<char>>;
 
     void do_read();
     void on_read(boost::beast::error_code ec, std::size_t bytes_transferred);
     void handle_request();
     void start_infer(bool stream, const InferRequestSpec &spec);
     void on_state_update(RequestSnapshot snap);
+    void arm_disconnect_watch();
+    void stop_disconnect_watch();
+    void on_peer_wait(boost::beast::error_code wait_ec);
     void on_disconnect();
     void queue_write(std::string data, bool is_terminal);
     void do_write();
@@ -56,11 +58,13 @@ class HttpSession : public std::enable_shared_from_this<HttpSession> {
     bool stream_mode_{false};
     bool response_started_{false};
     bool closed_{false};
+    bool disconnect_watch_armed_{false};
+    bool disconnect_watch_active_{false};
     std::deque<std::string> write_queue_;
     bool write_in_progress_{false};
     boost::asio::steady_timer deadline_timer_;
-    boost::asio::steady_timer disconnect_timer_;
     std::shared_ptr<StringResponse> response_;
+    char peer_probe_byte_{0};
 };
 
 class HttpServer {

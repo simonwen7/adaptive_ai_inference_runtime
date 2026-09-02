@@ -107,6 +107,7 @@ target_link_libraries(airuntime_tests PRIVATE airuntime_core GTest::gtest_main)
 add_executable(airuntime_serving_tests
     tests/request_handler_test.cpp
     tests/http_integration_test.cpp
+    tests/http_disconnect_test.cpp
 )
 target_link_libraries(airuntime_serving_tests PRIVATE airuntime_serving GTest::gtest_main)
 target_compile_definitions(airuntime_serving_tests PRIVATE

@@ -19,12 +19,18 @@ bool is_terminal_state(RequestState state) {
            state == RequestState::TimedOut;
 }
 
+bool is_peer_gone(const boost::beast::error_code &ec) {
+    return ec == boost::asio::error::eof || ec == boost::asio::error::connection_reset ||
+           ec == boost::asio::error::connection_aborted || ec == boost::asio::error::broken_pipe ||
+           ec == boost::asio::error::bad_descriptor || ec == boost::asio::error::network_reset;
+}
+
 } // namespace
 
 HttpSession::HttpSession(boost::asio::ip::tcp::socket socket, RequestHandler &handler,
                          HttpServer &server)
     : socket_(std::move(socket)), handler_(handler), server_(server),
-      deadline_timer_(socket_.get_executor()), disconnect_timer_(socket_.get_executor()) {}
+      deadline_timer_(socket_.get_executor()) {}
 
 void HttpSession::start() {
     do_read();
@@ -102,16 +108,27 @@ void HttpSession::start_infer(bool stream, const InferRequestSpec &spec) {
         std::chrono::duration_cast<std::chrono::steady_clock::duration>(spec.timeout);
     active_request_->set_deadline(deadline);
 
-    auto self = shared_from_this();
-    active_request_->add_observer([self](RequestSnapshot snap) {
+    std::weak_ptr<HttpSession> weak_self = shared_from_this();
+    active_request_->add_observer([weak_self](RequestSnapshot snap) {
+        auto self = weak_self.lock();
+        if (!self) {
+            return;
+        }
         boost::asio::post(self->socket_.get_executor(), [self, snap = std::move(snap)]() mutable {
             self->on_state_update(snap);
         });
     });
 
     deadline_timer_.expires_at(deadline);
-    deadline_timer_.async_wait([self, request = active_request_](boost::beast::error_code ec) {
-        if (!ec && request && !request->is_terminal()) {
+    deadline_timer_.async_wait([weak_self, request = active_request_](boost::beast::error_code ec) {
+        if (ec) {
+            return;
+        }
+        auto self = weak_self.lock();
+        if (!self) {
+            return;
+        }
+        if (request && !request->is_terminal()) {
             request->try_timeout();
         }
     });
@@ -122,7 +139,66 @@ void HttpSession::start_infer(bool stream, const InferRequestSpec &spec) {
     }
     if (active_request_->is_terminal()) {
         on_state_update(active_request_->snapshot());
+        return;
     }
+
+    arm_disconnect_watch();
+}
+
+void HttpSession::arm_disconnect_watch() {
+    if (closed_ || disconnect_watch_armed_) {
+        return;
+    }
+    disconnect_watch_active_ = true;
+    disconnect_watch_armed_ = true;
+    // Wait for read readiness, then probe. Idle sockets do not complete wait_read.
+    auto self = shared_from_this();
+    socket_.async_wait(boost::asio::socket_base::wait_read,
+                       [self](boost::beast::error_code ec) { self->on_peer_wait(ec); });
+}
+
+void HttpSession::stop_disconnect_watch() {
+    disconnect_watch_active_ = false;
+}
+
+void HttpSession::on_peer_wait(boost::beast::error_code wait_ec) {
+    disconnect_watch_armed_ = false;
+    if (closed_ || !disconnect_watch_active_) {
+        return;
+    }
+    if (wait_ec == boost::asio::error::operation_aborted) {
+        return;
+    }
+
+    // Mere readiness is not proof of abandon. Probe with a non-blocking read.
+    boost::beast::error_code nb_ec;
+    const bool was_non_blocking = socket_.non_blocking();
+    socket_.non_blocking(true, nb_ec);
+
+    boost::beast::error_code read_ec;
+    const std::size_t n = socket_.read_some(boost::asio::buffer(&peer_probe_byte_, 1), read_ec);
+
+    socket_.non_blocking(was_non_blocking, nb_ec);
+
+    if (is_peer_gone(read_ec) || (!read_ec && n == 0) || is_peer_gone(wait_ec)) {
+        on_disconnect();
+        return;
+    }
+    if (read_ec == boost::asio::error::would_block || read_ec == boost::asio::error::try_again) {
+        // Spurious readiness — re-arm without cancelling.
+        arm_disconnect_watch();
+        return;
+    }
+    if (!read_ec && n > 0) {
+        // One-request-per-connection: unexpected follow-up bytes → cancel pending work.
+        on_disconnect();
+        return;
+    }
+    if (read_ec) {
+        on_disconnect();
+        return;
+    }
+    arm_disconnect_watch();
 }
 
 void HttpSession::on_state_update(RequestSnapshot snap) {
@@ -132,6 +208,7 @@ void HttpSession::on_state_update(RequestSnapshot snap) {
     if (stream_mode_) {
         if (!response_started_) {
             response_started_ = true;
+            stop_disconnect_watch();
             static const std::string kHeaders = "HTTP/1.1 200 OK\r\n"
                                                 "Content-Type: application/x-ndjson\r\n"
                                                 "Transfer-Encoding: chunked\r\n"
@@ -139,6 +216,7 @@ void HttpSession::on_state_update(RequestSnapshot snap) {
             queue_write(kHeaders, false);
         }
         if (is_terminal_state(snap.state)) {
+            stop_disconnect_watch();
             queue_write(handler_.serialize_terminal_event(snap), true);
             deadline_timer_.cancel();
             return;
@@ -152,17 +230,19 @@ void HttpSession::on_state_update(RequestSnapshot snap) {
     if (!is_terminal_state(snap.state)) {
         return;
     }
+    stop_disconnect_watch();
     deadline_timer_.cancel();
     const auto response = handler_.serialize_infer_response(snap);
     send_json_response(response.status_code, response.body);
 }
 
 void HttpSession::on_disconnect() {
-    if (closed_) {
-        return;
-    }
+    stop_disconnect_watch();
     if (active_request_ && !active_request_->is_terminal()) {
         active_request_->try_cancel();
+    }
+    if (closed_) {
+        return;
     }
     close();
 }
@@ -226,6 +306,7 @@ void HttpSession::send_json_response(int status, const std::string &body) {
     if (closed_) {
         return;
     }
+    stop_disconnect_watch();
     deadline_timer_.cancel();
     response_ = std::make_shared<StringResponse>();
     response_->result(static_cast<boost::beast::http::status>(status));
@@ -236,7 +317,13 @@ void HttpSession::send_json_response(int status, const std::string &body) {
     response_->prepare_payload();
     boost::beast::http::async_write(
         socket_, *response_, [self = shared_from_this()](boost::beast::error_code ec, std::size_t) {
-            (void)ec;
+            if (ec) {
+                if (self->active_request_ && !self->active_request_->is_terminal()) {
+                    self->active_request_->try_cancel();
+                }
+                self->close();
+                return;
+            }
             boost::beast::error_code ignored;
             self->socket_.shutdown(boost::asio::ip::tcp::socket::shutdown_send, ignored);
             self->close();
@@ -248,9 +335,10 @@ void HttpSession::close() {
         return;
     }
     closed_ = true;
+    stop_disconnect_watch();
     deadline_timer_.cancel();
-    disconnect_timer_.cancel();
     boost::beast::error_code ec;
+    socket_.cancel(ec);
     socket_.close(ec);
     server_.unregister_session(this);
 }

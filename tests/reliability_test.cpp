@@ -146,31 +146,47 @@ TEST(ReliabilityTest, WaitPushUntilTimesOut) {
 TEST(ReliabilityTest, PositiveMaxBatchWaitFormsBatch) {
     BatchBuilderConfig config;
     config.max_batch_size = 4;
-    config.max_batch_wait = std::chrono::milliseconds(50);
+    config.max_batch_wait = std::chrono::milliseconds(200);
     BatchBuilder builder(config);
 
-    auto first = std::make_shared<InferenceRequest>("a", "model-a", "p", 1);
-    std::optional<RequestPtr> second;
-    std::thread consumer([&] {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool waiting_in_window = false;
+    bool second_ready = false;
+    bool producer_ok = true;
+    RequestPtr second;
+
+    std::thread producer([&] {
+        std::unique_lock lock(mutex);
+        if (!cv.wait_for(lock, std::chrono::seconds(2), [&] { return waiting_in_window; })) {
+            producer_ok = false;
+            return;
+        }
         second = std::make_shared<InferenceRequest>("b", "model-a", "p", 1);
+        second_ready = true;
+        cv.notify_all();
     });
 
+    auto first = std::make_shared<InferenceRequest>("a", "model-a", "p", 1);
     auto formed = builder.form(
         first,
         [&](std::chrono::steady_clock::time_point wait_deadline) -> std::optional<RequestPtr> {
-            while (std::chrono::steady_clock::now() < wait_deadline) {
-                if (second.has_value()) {
-                    return second;
-                }
-                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            std::unique_lock lock(mutex);
+            waiting_in_window = true;
+            cv.notify_all();
+            if (!cv.wait_until(lock, wait_deadline, [&] { return second_ready; })) {
+                return std::nullopt;
             }
-            return std::nullopt;
+            second_ready = false;
+            return second;
         },
         true);
 
-    consumer.join();
-    EXPECT_GE(formed.requests.size(), 1u);
+    producer.join();
+    EXPECT_TRUE(producer_ok);
+    ASSERT_EQ(formed.requests.size(), 2u);
+    EXPECT_EQ(formed.requests[0]->request_id(), "a");
+    EXPECT_EQ(formed.requests[1]->request_id(), "b");
 }
 
 TEST(ReliabilityTest, CancelQueuedRequest) {
@@ -212,7 +228,10 @@ TEST(ReliabilityTest, LateBackendSuccessDiscardedAfterTimeout) {
         ASSERT_TRUE(cv->wait_for(lock, std::chrono::seconds(2), [&] { return *entered; }));
     }
     request->try_timeout();
-    *release = true;
+    {
+        std::lock_guard lock(*mutex);
+        *release = true;
+    }
     cv->notify_all();
     ASSERT_TRUE(request->wait_for_terminal(std::chrono::seconds(2)));
     EXPECT_EQ(request->state(), RequestState::TimedOut);
