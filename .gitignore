@@ -33,6 +33,7 @@ __pycache__/
 benchmarks/results/*.json
 benchmarks/results/*.md
 !benchmarks/results/README.md
+!benchmarks/results/m6_final_summary.json
 /tmp/airuntime-bench-out/
 
 # macOS

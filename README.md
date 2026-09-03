@@ -1,32 +1,43 @@
 # Adaptive AI Inference Runtime
 
-A C++20 multi-model inference **runtime** for production-oriented serving concerns: request scheduling, dynamic batching, multi-worker routing, memory-constrained model residency, overload/backpressure, cooperative cancellation, and a thin HTTP API — with an optional real llama.cpp GGUF backend on CPU/Metal.
+A C++20 inference-serving runtime that demonstrates production control-plane concerns — request scheduling, dynamic batching, multi-worker routing, bounded model residency, overload backpressure, cooperative cancellation, and HTTP serving — with an optional real llama.cpp GGUF backend on Apple Metal.
 
-Built to study and demonstrate **control-plane** behavior of an inference server, not to ship a new model architecture.
+## What it demonstrates
 
-## What works today
+- **Dynamic static batching** — `BatchBuilder` groups concurrent requests into same-model batches dispatched through llama.cpp `infer_batch`
+- **Multi-worker routing** with pluggable policies (round-robin, least-loaded, residency-aware)
+- **Workload-aware scheduling** and cost-aware eviction under memory constraints
+- **Bounded queues and backpressure** — overload is rejected with HTTP 503, not unbounded queueing
+- **Cooperative cancellation and deadlines** — first-terminal-wins request lifecycle
+- **HTTP API** — `POST /v1/infer`, lifecycle NDJSON stream, health/models/runtime/metrics
+- **Reproducible benchmark harness** — stdlib Python, `--require-clean`, frozen model/hardware identity
 
-- Multi-worker runtime with bounded queues and admission
-- Dynamic static batching (`BatchBuilder`)
-- Adaptive policies: workload-aware scheduling, residency-aware routing, cost-aware eviction
-- Reliability: deadlines, cancellation, first-terminal-wins
-- HTTP: `POST /v1/infer`, lifecycle NDJSON stream, health/models/runtime/metrics
-- Optional **library-level** llama.cpp GGUF path (greedy raw-prompt generation, real multi-sequence `infer_batch`)
-- Apple Metal auto-offload when supported; explicit CPU via `--gpu-layers 0`
-- Reproducible **benchmark harness** (methodology + tooling; final numbers from a clean SHA)
+## Measured result
 
-Docs: [Architecture](docs/architecture.md) · [Benchmarks](docs/benchmarks.md)
+On an Apple M4 Pro (24 GB, Metal) serving Qwen3.5-0.8B Q4_0 via llama.cpp:
+
+> At concurrency 4, adaptive batching increased median HTTP serving throughput from 2.17 to 4.35 req/s (+101%) while reducing median p95 end-to-end latency from 2849.9 ms to 2105.4 ms (−26.1%).
+
+At concurrency 4, median end-to-end serving output-token throughput increased from 67.84 to 136.35 tokens/s (+101%). The real llama.cpp backend formed true 4-request batches on every measured batch execution.
+
+Under the frozen c=32 overload scenario (capacity deliberately limited), bounded queues rejected 61/64 requests with HTTP 503 in each of three runs, with zero transport errors. No global HTTP freeze or timeout collapse occurred.
+
+Full methodology, per-run data, caveats, and the c=2 negative result are in [docs/benchmarks.md](docs/benchmarks.md). Machine-readable results: [`benchmarks/results/m6_final_summary.json`](benchmarks/results/m6_final_summary.json).
+
+## Architecture
+
+See [docs/architecture.md](docs/architecture.md).
 
 ## Build
 
-Default (synthetic only; does **not** fetch llama.cpp):
+Default (synthetic backend only):
 
 ```bash
 cmake -S . -B build
 cmake --build build
 ```
 
-Optional real backend:
+With llama.cpp backend:
 
 ```bash
 cmake -S . -B build-llama -DAIRUNTIME_ENABLE_LLAMA=ON
@@ -41,13 +52,13 @@ cmake -S . -B build -DBoost_ROOT=$(brew --prefix boost)
 
 ## Run
 
-Synthetic (default):
+Synthetic:
 
 ```bash
 ./build/runtime-server --host 127.0.0.1 --port 8080
 ```
 
-Real GGUF (llama-enabled build):
+Real GGUF:
 
 ```bash
 ./build-llama/runtime-server \
@@ -57,9 +68,7 @@ Real GGUF (llama-enabled build):
   --ctx-size 2048
 ```
 
-Useful policy knobs (defaults preserve prior behavior):
-
-`--max-batch-size` (default 4) · `--max-batch-wait-ms` (default 0) · `--scheduler fifo|workload` (default workload) · `--scheduler-capacity` (32) · `--worker-queue-capacity` (8)
+Policy knobs: `--max-batch-size` (4) · `--max-batch-wait-ms` (0) · `--scheduler fifo|workload` (workload) · `--scheduler-capacity` (32) · `--worker-queue-capacity` (8)
 
 ## Test
 
@@ -70,12 +79,11 @@ python3 -m unittest discover -s benchmarks/tests -p 'test_*.py'
 
 ## Benchmarks
 
-See [benchmarks/README.md](benchmarks/README.md). Harness is stdlib Python only. Final portfolio results require a clean committed SHA and `--require-clean`. This README does **not** claim specific speedups yet.
+See [benchmarks/README.md](benchmarks/README.md) for harness usage and [docs/benchmarks.md](docs/benchmarks.md) for results.
 
 ## Optional model (external)
 
 - `ggml-org/Qwen3.5-0.8B-GGUF` / `Qwen3.5-0.8B-Q4_0.gguf`
-- Example path: `$HOME/Models/adaptive_ai_inference_runtime/Qwen3.5-0.8B-Q4_0.gguf`
 - Not bundled; `*.gguf` is gitignored
 
 ## Dependencies
@@ -83,12 +91,12 @@ See [benchmarks/README.md](benchmarks/README.md). Harness is stdlib Python only.
 - C++20, Boost.system, nlohmann/json (FetchContent), GoogleTest (FetchContent)
 - Optional llama.cpp @ `9cc33944f9b7a44243618d5522adae357d7fdc90` when `-DAIRUNTIME_ENABLE_LLAMA=ON`
 
-## Honest limits
+## Scope and limitations
 
+- No continuous batching, KV cache reuse, or speculative decoding
 - No token streaming (stream endpoint is lifecycle status only)
-- No continuous batching / prefix cache / speculative decoding
 - No Metal hard preemption
-- No benchmark performance claims in CI
+- Benchmark results are hardware-specific (Apple M4 Pro / Metal); not generalizable to other platforms
 
 ## License
 

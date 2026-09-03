@@ -1,0 +1,153 @@
+{
+  "schema_version": 1,
+
+  "source": {
+    "project_git_sha": "dfc00d73033af62f1888bac014d5586086c5b30d",
+    "llama_git_sha": "9cc33944f9b7a44243618d5522adae357d7fdc90",
+    "git_dirty": false
+  },
+
+  "model": {
+    "filename": "Qwen3.5-0.8B-Q4_0.gguf",
+    "sha256": "57d1997790d1744fba5b40a7317df71ea5e2acee28c47e78f0cce39c0703f8cf",
+    "size_bytes": 563036064
+  },
+
+  "hardware": {
+    "cpu_model": "Apple M4 Pro",
+    "cores": 12,
+    "architecture": "arm64",
+    "physical_memory_bytes": 25769803776,
+    "os": "macOS 15.7.4",
+    "compiler": "Apple clang 17.0.0",
+    "cmake": "4.4.2",
+    "python": "3.14.3"
+  },
+
+  "methodology": {
+    "latency_definition": "HTTP end-to-end (client request start to complete terminal response body)",
+    "throughput_definition": "end-to-end serving output-token throughput (not raw llama TPS)",
+    "percentiles": "nearest-rank p50 and p95",
+    "aggregation": "median of 3 independent run-level aggregates",
+    "cold_requests_per_run": 1,
+    "warmup_requests_per_run": 5,
+    "measured_requests_per_batching_run": 60,
+    "measured_requests_per_overload_run": 64,
+    "max_output_tokens": 32,
+    "batch_metrics": "metrics_after minus metrics_before counter deltas"
+  },
+
+  "batching": {
+    "shared_configuration": {
+      "backend": "llama",
+      "workers": 1,
+      "ctx_size": 2048,
+      "scheduler": "workload",
+      "scheduler_capacity": 32,
+      "worker_queue_capacity": 8
+    },
+    "cells": [
+      {
+        "concurrency": 1, "mode": "baseline", "max_batch_size": 1, "max_batch_wait_ms": 0,
+        "median": { "rps": 2.09, "output_tokens_per_s": 65.56, "p50_ms": 198.6, "p95_ms": 1332.1, "mean_batch_size": 1.00, "multi_request_batch_rate": 0.00 },
+        "runs": [
+          { "rps": 0.76, "output_tokens_per_s": 23.79, "p50_ms": 898.8, "p95_ms": 3730.2, "mean_batch_size": 1.00, "multi_request_batch_rate": 0.00, "successes": 60, "errors": 0 },
+          { "rps": 2.09, "output_tokens_per_s": 65.56, "p50_ms": 198.6, "p95_ms": 1332.1, "mean_batch_size": 1.00, "multi_request_batch_rate": 0.00, "successes": 60, "errors": 0 },
+          { "rps": 5.32, "output_tokens_per_s": 166.72, "p50_ms": 189.5, "p95_ms": 196.5, "mean_batch_size": 1.00, "multi_request_batch_rate": 0.00, "successes": 60, "errors": 0 }
+        ]
+      },
+      {
+        "concurrency": 1, "mode": "adaptive", "max_batch_size": 4, "max_batch_wait_ms": 3,
+        "median": { "rps": 2.36, "output_tokens_per_s": 73.82, "p50_ms": 353.4, "p95_ms": 967.7, "mean_batch_size": 1.00, "multi_request_batch_rate": 0.00 },
+        "runs": [
+          { "rps": 2.55, "output_tokens_per_s": 79.80, "p50_ms": 353.4, "p95_ms": 683.0, "mean_batch_size": 1.00, "multi_request_batch_rate": 0.00, "successes": 60, "errors": 0 },
+          { "rps": 2.36, "output_tokens_per_s": 73.82, "p50_ms": 330.5, "p95_ms": 967.7, "mean_batch_size": 1.00, "multi_request_batch_rate": 0.00, "successes": 60, "errors": 0 },
+          { "rps": 2.13, "output_tokens_per_s": 66.62, "p50_ms": 388.7, "p95_ms": 1030.7, "mean_batch_size": 1.00, "multi_request_batch_rate": 0.00, "successes": 60, "errors": 0 }
+        ]
+      },
+      {
+        "concurrency": 2, "mode": "baseline", "max_batch_size": 1, "max_batch_wait_ms": 0,
+        "median": { "rps": 4.20, "output_tokens_per_s": 131.59, "p50_ms": 380.6, "p95_ms": 736.4, "mean_batch_size": 1.00, "multi_request_batch_rate": 0.00 },
+        "runs": [
+          { "rps": 4.20, "output_tokens_per_s": 131.59, "p50_ms": 380.6, "p95_ms": 736.4, "mean_batch_size": 1.00, "multi_request_batch_rate": 0.00, "successes": 60, "errors": 0 },
+          { "rps": 5.31, "output_tokens_per_s": 166.45, "p50_ms": 374.4, "p95_ms": 400.9, "mean_batch_size": 1.00, "multi_request_batch_rate": 0.00, "successes": 60, "errors": 0 },
+          { "rps": 2.87, "output_tokens_per_s": 89.93, "p50_ms": 580.8, "p95_ms": 1360.1, "mean_batch_size": 1.00, "multi_request_batch_rate": 0.00, "successes": 60, "errors": 0 }
+        ]
+      },
+      {
+        "concurrency": 2, "mode": "adaptive", "max_batch_size": 4, "max_batch_wait_ms": 3,
+        "median": { "rps": 3.15, "output_tokens_per_s": 98.85, "p50_ms": 555.6, "p95_ms": 1181.9, "mean_batch_size": 2.00, "multi_request_batch_rate": 1.00 },
+        "runs": [
+          { "rps": 3.15, "output_tokens_per_s": 98.85, "p50_ms": 555.6, "p95_ms": 1181.9, "mean_batch_size": 2.00, "multi_request_batch_rate": 1.00, "successes": 60, "errors": 0 },
+          { "rps": 3.44, "output_tokens_per_s": 107.67, "p50_ms": 542.8, "p95_ms": 753.7, "mean_batch_size": 2.00, "multi_request_batch_rate": 1.00, "successes": 60, "errors": 0 },
+          { "rps": 3.06, "output_tokens_per_s": 95.87, "p50_ms": 571.0, "p95_ms": 1419.4, "mean_batch_size": 2.00, "multi_request_batch_rate": 1.00, "successes": 60, "errors": 0 }
+        ]
+      },
+      {
+        "concurrency": 4, "mode": "baseline", "max_batch_size": 1, "max_batch_wait_ms": 0,
+        "median": { "rps": 2.17, "output_tokens_per_s": 67.84, "p50_ms": 1741.9, "p95_ms": 2849.9, "mean_batch_size": 1.00, "multi_request_batch_rate": 0.00 },
+        "runs": [
+          { "rps": 2.30, "output_tokens_per_s": 72.18, "p50_ms": 1608.6, "p95_ms": 2610.0, "mean_batch_size": 1.00, "multi_request_batch_rate": 0.00, "successes": 60, "errors": 0 },
+          { "rps": 2.17, "output_tokens_per_s": 67.84, "p50_ms": 1765.4, "p95_ms": 2849.9, "mean_batch_size": 1.00, "multi_request_batch_rate": 0.00, "successes": 60, "errors": 0 },
+          { "rps": 2.12, "output_tokens_per_s": 66.34, "p50_ms": 1741.9, "p95_ms": 2894.3, "mean_batch_size": 1.00, "multi_request_batch_rate": 0.00, "successes": 60, "errors": 0 }
+        ]
+      },
+      {
+        "concurrency": 4, "mode": "adaptive", "max_batch_size": 4, "max_batch_wait_ms": 3,
+        "median": { "rps": 4.35, "output_tokens_per_s": 136.35, "p50_ms": 898.8, "p95_ms": 2105.4, "mean_batch_size": 4.00, "multi_request_batch_rate": 1.00 },
+        "runs": [
+          { "rps": 4.12, "output_tokens_per_s": 129.19, "p50_ms": 907.4, "p95_ms": 2105.4, "mean_batch_size": 4.00, "multi_request_batch_rate": 1.00, "successes": 60, "errors": 0 },
+          { "rps": 4.35, "output_tokens_per_s": 136.35, "p50_ms": 898.8, "p95_ms": 1932.8, "mean_batch_size": 4.00, "multi_request_batch_rate": 1.00, "successes": 60, "errors": 0 },
+          { "rps": 4.62, "output_tokens_per_s": 144.65, "p50_ms": 744.0, "p95_ms": 2569.9, "mean_batch_size": 4.00, "multi_request_batch_rate": 1.00, "successes": 60, "errors": 0 }
+        ]
+      }
+    ]
+  },
+
+  "comparisons": {
+    "note": "adaptive vs baseline: (adaptive_median - baseline_median) / baseline_median * 100",
+    "cells": [
+      { "concurrency": 1, "delta_rps_pct": 12.6, "delta_output_tokens_per_s_pct": 12.6, "delta_p50_pct": 78.0, "delta_p95_pct": -27.4 },
+      { "concurrency": 2, "delta_rps_pct": -24.9, "delta_output_tokens_per_s_pct": -24.9, "delta_p50_pct": 46.0, "delta_p95_pct": 60.5 },
+      { "concurrency": 4, "delta_rps_pct": 101.0, "delta_output_tokens_per_s_pct": 101.0, "delta_p50_pct": -48.4, "delta_p95_pct": -26.1 }
+    ]
+  },
+
+  "overload": {
+    "configuration": {
+      "workers": 1,
+      "max_batch_size": 1,
+      "max_batch_wait_ms": 0,
+      "scheduler_capacity": 4,
+      "worker_queue_capacity": 2,
+      "concurrency": 32,
+      "measured_requests": 64,
+      "max_output_tokens": 32,
+      "runs": 3
+    },
+    "runs": [
+      { "http_200": 3, "http_503": 61, "other_http": 0, "transport_errors": 0, "successful_rps": 5.47, "p50_ms": 365.5, "p95_ms": 548.3, "wall_s": 0.549 },
+      { "http_200": 3, "http_503": 61, "other_http": 0, "transport_errors": 0, "successful_rps": 5.63, "p50_ms": 366.1, "p95_ms": 532.5, "wall_s": 0.533 },
+      { "http_200": 3, "http_503": 61, "other_http": 0, "transport_errors": 0, "successful_rps": 5.46, "p50_ms": 366.5, "p95_ms": 549.3, "wall_s": 0.550 }
+    ],
+    "median": {
+      "http_200": 3,
+      "http_503": 61,
+      "rejection_rate_pct": 95.3,
+      "transport_errors": 0,
+      "successful_rps": 5.47,
+      "p50_ms": 366.1,
+      "p95_ms": 548.3
+    }
+  },
+
+  "caveats": [
+    "Results are specific to Apple M4 Pro / 24 GB / macOS 15.7.4 / Metal. Do not generalize to other hardware.",
+    "Only 3 independent runs per cell; medians are descriptive, not statistically significant.",
+    "Baseline c=1 had high run-to-run variance (RPS 0.76 to 5.32); c=1 percentage claims are fragile.",
+    "At c=2, adaptive batching formed real batches (mean 2.0) but median RPS decreased and p95 increased vs baseline.",
+    "Latency is HTTP end-to-end, not model-only. TTFT and TPOT are not measured.",
+    "Output-token throughput is end-to-end serving throughput, not raw llama decode TPS.",
+    "Overload 503 is intentional bounded rejection under a deliberately oversubscribed scenario."
+  ]
+}
