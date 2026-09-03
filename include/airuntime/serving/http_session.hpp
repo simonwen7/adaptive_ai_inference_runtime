@@ -57,13 +57,13 @@ class HttpSession : public std::enable_shared_from_this<HttpSession> {
     RequestPtr active_request_;
     bool stream_mode_{false};
     bool response_started_{false};
+    bool json_response_started_{false};
     bool closed_{false};
     bool disconnect_watch_armed_{false};
     bool disconnect_watch_active_{false};
     std::deque<std::string> write_queue_;
     bool write_in_progress_{false};
     boost::asio::steady_timer deadline_timer_;
-    std::shared_ptr<StringResponse> response_;
     char peer_probe_byte_{0};
 };
 

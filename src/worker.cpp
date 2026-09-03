@@ -72,6 +72,23 @@ Status Worker::start() {
     return Status::success();
 }
 
+Status Worker::try_enqueue(const RequestPtr &request) {
+    if (!request) {
+        return Status::error(ErrorCode::InternalError, "null request");
+    }
+    if (!accepting_.load()) {
+        return Status::error(ErrorCode::QueueClosed, "worker is not accepting work");
+    }
+    if (is_dead_request(request)) {
+        return Status::success();
+    }
+    auto status = lane_.try_push(request);
+    if (status.ok()) {
+        queued_count_.fetch_add(1, std::memory_order_relaxed);
+    }
+    return status;
+}
+
 Status Worker::enqueue(const RequestPtr &request) {
     if (!request) {
         return Status::error(ErrorCode::InternalError, "null request");

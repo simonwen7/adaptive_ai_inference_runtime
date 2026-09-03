@@ -138,7 +138,6 @@ void HttpSession::start_infer(bool stream, const InferRequestSpec &spec) {
         active_request_->try_reject(submit_status);
     }
     if (active_request_->is_terminal()) {
-        on_state_update(active_request_->snapshot());
         return;
     }
 
@@ -303,20 +302,23 @@ void HttpSession::do_write() {
 }
 
 void HttpSession::send_json_response(int status, const std::string &body) {
-    if (closed_) {
+    if (closed_ || json_response_started_) {
         return;
     }
+    json_response_started_ = true;
     stop_disconnect_watch();
     deadline_timer_.cancel();
-    response_ = std::make_shared<StringResponse>();
-    response_->result(static_cast<boost::beast::http::status>(status));
-    response_->set(boost::beast::http::field::content_type, "application/json");
-    response_->set(boost::beast::http::field::connection, "close");
-    response_->keep_alive(false);
-    response_->body() = body;
-    response_->prepare_payload();
+    auto response = std::make_shared<StringResponse>();
+    response->result(static_cast<boost::beast::http::status>(status));
+    response->set(boost::beast::http::field::content_type, "application/json");
+    response->set(boost::beast::http::field::connection, "close");
+    response->keep_alive(false);
+    response->body() = body;
+    response->prepare_payload();
     boost::beast::http::async_write(
-        socket_, *response_, [self = shared_from_this()](boost::beast::error_code ec, std::size_t) {
+        socket_, *response,
+        [self = shared_from_this(), response](boost::beast::error_code ec, std::size_t) {
+            (void)response;
             if (ec) {
                 if (self->active_request_ && !self->active_request_->is_terminal()) {
                     self->active_request_->try_cancel();

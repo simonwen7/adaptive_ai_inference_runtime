@@ -48,6 +48,7 @@ class Worker {
     Worker &operator=(const Worker &) = delete;
 
     Status start();
+    Status try_enqueue(const RequestPtr &request);
     Status enqueue(const RequestPtr &request);
     Status enqueue_until(const RequestPtr &request, std::chrono::steady_clock::time_point deadline);
     void close();

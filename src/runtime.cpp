@@ -242,17 +242,8 @@ Status Runtime::route_request(const RequestPtr &request) {
         return err;
     }
 
-    const auto deadline = request->deadline();
-    Status enqueue_status;
-    if (deadline.has_value()) {
-        enqueue_status = target->enqueue_until(request, *deadline);
-    } else {
-        enqueue_status = target->enqueue(request);
-    }
+    const Status enqueue_status = target->try_enqueue(request);
     if (!enqueue_status.ok()) {
-        if (enqueue_status.code == ErrorCode::TimedOut) {
-            return enqueue_status;
-        }
         request->try_reject(enqueue_status);
         return enqueue_status;
     }
