@@ -1,0 +1,77 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: dark;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: Inter, "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #05070b;
+  color: #f5f7ff;
+}
+
+.skip-link {
+  position: absolute;
+  top: -100px;
+  left: 1rem;
+  z-index: 60;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: #0d1723;
+  color: white;
+  padding: 0.5rem 0.9rem;
+}
+
+.skip-link:focus {
+  top: 0.75rem;
+}
+
+main {
+  position: relative;
+}
+
+main::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+  background:
+    radial-gradient(circle at 10% 10%, rgba(34, 211, 238, 0.08), transparent 30%),
+    radial-gradient(circle at 85% 15%, rgba(59, 130, 246, 0.06), transparent 30%),
+    linear-gradient(#05070b, #05070b);
+}
+
+.queue-pulse span {
+  animation: queuePulse 900ms ease-in-out;
+}
+
+@keyframes queuePulse {
+  from {
+    transform: scale(0.65);
+    opacity: 0.4;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
